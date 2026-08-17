@@ -40,3 +40,20 @@ class AnalyzeAllResult(BaseModel):
     existing: int = 0
     skipped: int = 0
 
+
+class TypeXHealth(BaseModel):
+    mode: str
+    connected: bool
+    available_tools_count: int = 0
+    allowed_read_tools_count: int = 0
+
+
+class TypeXSyncResult(BaseModel):
+    chats_seen: int = 0
+    chats_created: int = 0
+    messages_seen: int = 0
+    messages_created: int = 0
+    messages_existing: int = 0
+    contacts_created: int = 0
+
+

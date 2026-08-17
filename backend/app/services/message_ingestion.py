@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.enums import ChatType
 from app.models import Chat, Message
 from app.schemas.unified import UnifiedChat, UnifiedMessage
+from app.services.contact_resolution import resolve_contact
 from app.time_utils import utc_now
 
 
@@ -62,11 +63,22 @@ class MessageIngestionService:
         if existing is not None:
             return existing, False
 
+        contact_id = None
+        if payload.sender_id:
+            contact, _created = resolve_contact(
+                self.session,
+                payload.platform,
+                payload.sender_id,
+                payload.sender_name,
+            )
+            contact_id = contact.id
+
         message = Message(
             chat_id=chat.id,
             external_id=payload.external_id,
             sender_external_id=payload.sender_id,
             sender_name=payload.sender_name,
+            contact_id=contact_id,
             text=payload.text,
             timestamp=payload.timestamp,
             is_outgoing=payload.is_outgoing,

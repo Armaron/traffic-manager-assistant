@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     frontend_origin: str = "http://localhost:5173"
     typex_mode: str = "mock"
+    typex_mcp_url: str = "http://127.0.0.1:52222/mcp/"
+    typex_request_timeout_seconds: float = 15.0
+    typex_sync_chat_limit: int = 20
+    typex_sync_message_limit: int = 50
     ai_provider: str = "mock"
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None

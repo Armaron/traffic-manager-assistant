@@ -137,13 +137,13 @@ Inbox talks to messengers through `MessengerAdapter`. TypeX, Slack, and Telegram
 
 ## TypeX note
 
-Real TypeX access is **Phase 8**. Official options from [TypeX docs](https://docs.typex.im/):
+Real TypeX access uses **TypeX Desktop MCP** (read-only in this version). Official docs: [TypeX MCP](https://docs.typex.im/).
 
-- **TypeX Desktop MCP** (preferred for this app): enable MCP in TypeX Desktop. Local endpoint is `http://127.0.0.1:52222/mcp/`. This can read the signed-in user's chats.
-- **TypeX Bot API**: a bot only sees chats it is added to. That is not enough for a personal work inbox.
-
-Until that is wired, keep `TYPEX_MODE=mock`. Do not use browser scraping.
+- Enable MCP in TypeX Desktop. Confirmed local endpoint: `http://127.0.0.1:52222/mcp/`.
+- Set `TYPEX_MODE=real` and click **Sync TypeX**. This reads chats/messages only. It does **not** send and does **not** call OpenRouter.
+- Diagnose tools without message content: `python -m app.integrations.typex_discover`
+- Until TypeX Desktop is running, keep `TYPEX_MODE=mock`. Do not scrape the TypeX UI.
 
 ## Next step
 
-**Phase 5:** Real AI via OpenRouter. Mock analysis already works.
+Slack and Telegram real adapters are not wired yet.

@@ -7,6 +7,8 @@ import type {
   ChatSummary,
   ConversationStatus,
   SeedResult,
+  TypeXHealth,
+  TypeXSyncResult,
 } from "../types/inbox";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -89,4 +91,12 @@ export function reanalyzeChat(chatId: number): Promise<AIAnalysis> {
 
 export function analyzeAllMockChats(): Promise<AnalyzeAllResult> {
   return request<AnalyzeAllResult>("/api/dev/analyze-all", { method: "POST" });
+}
+
+export function fetchTypeXHealth(): Promise<TypeXHealth> {
+  return request<TypeXHealth>("/api/integrations/typex/health");
+}
+
+export function syncTypeX(): Promise<TypeXSyncResult> {
+  return request<TypeXSyncResult>("/api/integrations/typex/sync", { method: "POST" });
 }

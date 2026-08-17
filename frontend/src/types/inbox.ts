@@ -70,6 +70,22 @@ export type SeedResult = {
   messages_total: number;
 };
 
+export type TypeXHealth = {
+  mode: string;
+  connected: boolean;
+  available_tools_count: number;
+  allowed_read_tools_count: number;
+};
+
+export type TypeXSyncResult = {
+  chats_seen: number;
+  chats_created: number;
+  messages_seen: number;
+  messages_created: number;
+  messages_existing: number;
+  contacts_created: number;
+};
+
 export type ImportantEntities = {
   geo: string[];
   traffic_source: string[];

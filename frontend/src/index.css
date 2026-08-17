@@ -407,6 +407,18 @@ select {
   cursor: wait;
 }
 
+.typex-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 16px 12px;
+}
+
+.typex-sync__note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .primary-button {
   margin-top: 12px;
   padding: 8px 12px;

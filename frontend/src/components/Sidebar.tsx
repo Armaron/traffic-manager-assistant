@@ -14,6 +14,11 @@ type SidebarProps = {
   onSeed?: () => void;
   seeding?: boolean;
   empty?: boolean;
+  typexMode?: string;
+  typexConnected?: boolean;
+  onSyncTypeX?: () => void;
+  syncing?: boolean;
+  syncNote?: string;
 };
 
 export function Sidebar({
@@ -27,6 +32,11 @@ export function Sidebar({
   onSeed,
   seeding = false,
   empty = false,
+  typexMode = "mock",
+  typexConnected = false,
+  onSyncTypeX,
+  syncing = false,
+  syncNote = "",
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -42,6 +52,26 @@ export function Sidebar({
         onChange={(event) => onSearchChange(event.target.value)}
       />
       <FilterBar value={filter} onChange={onFilterChange} />
+      {onSyncTypeX ? (
+        <div className="typex-sync">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={onSyncTypeX}
+            disabled={typexMode !== "real" || syncing}
+          >
+            {syncing ? "Syncing..." : "Sync TypeX"}
+          </button>
+          <p className="typex-sync__note">
+            {typexMode !== "real"
+              ? "TypeX: mock"
+              : typexConnected
+                ? "TypeX: connected"
+                : "TypeX: disconnected"}
+            {syncNote ? ` · ${syncNote}` : ""}
+          </p>
+        </div>
+      ) : null}
       {empty ? (
         <div className="empty-state">
           <p>No conversations yet.</p>

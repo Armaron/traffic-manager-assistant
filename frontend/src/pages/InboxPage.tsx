@@ -9,8 +9,10 @@ import {
   fetchChatMessages,
   fetchChats,
   fetchHealth,
+  fetchTypeXHealth,
   reanalyzeChat,
   seedMockData,
+  syncTypeX,
   updateChatStatus,
 } from "../services/api";
 import type {
@@ -84,6 +86,10 @@ export function InboxPage() {
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [seeding, setSeeding] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState("");
+  const [typexMode, setTypexMode] = useState("mock");
+  const [typexConnected, setTypexConnected] = useState(false);
   const [error, setError] = useState("");
 
   async function loadChats(preferredId?: number | null) {
@@ -128,6 +134,11 @@ export function InboxPage() {
           return;
         }
         setConnection("connected");
+        const typex = await fetchTypeXHealth();
+        if (!cancelled) {
+          setTypexMode(typex.mode);
+          setTypexConnected(typex.connected);
+        }
         await loadChats();
         setError("");
       } catch {
@@ -206,6 +217,24 @@ export function InboxPage() {
 
   const selectedChat = visibleChats.find((chat) => chat.id === resolvedSelectedId) ?? null;
 
+  async function handleSyncTypeX() {
+    setSyncing(true);
+    try {
+      const result = await syncTypeX();
+      await loadChats();
+      const typex = await fetchTypeXHealth();
+      setTypexMode(typex.mode);
+      setTypexConnected(typex.connected);
+      setSyncNote(`${result.messages_created} new messages`);
+      setError("");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "TypeX MCP unavailable";
+      setSyncNote(message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function handleSeed() {
     setSeeding(true);
     try {
@@ -274,6 +303,13 @@ export function InboxPage() {
         onSeed={handleSeed}
         seeding={seeding}
         empty={chats.length === 0}
+        typexMode={typexMode}
+        typexConnected={typexConnected}
+        onSyncTypeX={() => {
+          void handleSyncTypeX();
+        }}
+        syncing={syncing}
+        syncNote={syncNote}
       />
       <ConversationView
         chat={selectedChat}
