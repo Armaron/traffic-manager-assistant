@@ -25,7 +25,7 @@ class AIAnalysis(Base):
     needs_reply: Mapped[bool] = mapped_column(Boolean)
     needs_igor: Mapped[bool] = mapped_column(Boolean)
     reason: Mapped[str] = mapped_column(Text)
-    draft_reply: Mapped[str] = mapped_column(Text)
+    draft_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     important_entities: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)

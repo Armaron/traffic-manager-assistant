@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     typex_mode: str = "mock"
     ai_provider: str = "mock"
+    openrouter_api_key: str | None = None
+    openrouter_model: str | None = None
     database_url: str = Field(default_factory=default_database_url)
 
 

@@ -1,5 +1,7 @@
 import type { HealthResponse } from "../types/health";
 import type {
+  AIAnalysis,
+  AnalyzeAllResult,
   ChatDetail,
   ChatMessage,
   ChatSummary,
@@ -16,9 +18,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${response.status}`);
+    const detail = await readDetail(response);
+    throw new Error(detail || `${init?.method ?? "GET"} ${path} failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function readDetail(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: string };
+    return body.detail ?? "";
+  } catch {
+    return "";
+  }
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
@@ -49,4 +61,32 @@ export function updateChatStatus(
 
 export function seedMockData(): Promise<SeedResult> {
   return request<SeedResult>("/api/dev/seed", { method: "POST" });
+}
+
+export async function fetchChatAnalysis(chatId: number): Promise<AIAnalysis | null> {
+  const response = await fetch(`/api/chats/${chatId}/analysis`);
+  if (response.status === 404) {
+    const detail = await readDetail(response);
+    if (detail === "No incoming messages") {
+      throw new Error(detail);
+    }
+    return null;
+  }
+  if (!response.ok) {
+    const detail = await readDetail(response);
+    throw new Error(detail || `GET /api/chats/${chatId}/analysis failed: ${response.status}`);
+  }
+  return response.json() as Promise<AIAnalysis>;
+}
+
+export function analyzeChat(chatId: number): Promise<AIAnalysis> {
+  return request<AIAnalysis>(`/api/chats/${chatId}/analyze`, { method: "POST" });
+}
+
+export function reanalyzeChat(chatId: number): Promise<AIAnalysis> {
+  return request<AIAnalysis>(`/api/chats/${chatId}/reanalyze`, { method: "POST" });
+}
+
+export function analyzeAllMockChats(): Promise<AnalyzeAllResult> {
+  return request<AnalyzeAllResult>("/api/dev/analyze-all", { method: "POST" });
 }

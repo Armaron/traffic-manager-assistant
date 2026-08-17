@@ -1,6 +1,12 @@
-from app.schemas.analysis import AIAnalysisCreate, AIAnalysisRead, ImportantEntities
+from app.schemas.analysis import (
+    AIAnalysisContext,
+    AIAnalysisCreate,
+    AIAnalysisRead,
+    AIAnalysisResult,
+    ImportantEntities,
+)
 from app.schemas.chat import ChatCreate, ChatRead
-from app.schemas.inbox import ChatStatusUpdate, ChatSummary, SeedResult
+from app.schemas.inbox import AnalyzeAllResult, ChatStatusUpdate, ChatSummary, SeedResult
 from app.schemas.company import CompanyCreate, CompanyRead
 from app.schemas.contact import (
     ContactCreate,
@@ -14,8 +20,11 @@ from app.schemas.message import MessageCreate, MessageRead
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 __all__ = [
+    "AIAnalysisContext",
     "AIAnalysisCreate",
     "AIAnalysisRead",
+    "AIAnalysisResult",
+    "AnalyzeAllResult",
     "ChatCreate",
     "ChatRead",
     "ChatStatusUpdate",

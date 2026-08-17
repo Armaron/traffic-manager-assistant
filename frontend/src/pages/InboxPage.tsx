@@ -4,13 +4,22 @@ import { ConversationView } from "../components/ConversationView";
 import { HealthStatus } from "../components/HealthStatus";
 import { Sidebar } from "../components/Sidebar";
 import {
+  analyzeChat,
+  fetchChatAnalysis,
   fetchChatMessages,
   fetchChats,
   fetchHealth,
+  reanalyzeChat,
   seedMockData,
   updateChatStatus,
 } from "../services/api";
-import type { ChatMessage, ChatSummary, ConversationStatus, InboxFilter } from "../types/inbox";
+import type {
+  AIAnalysis,
+  ChatMessage,
+  ChatSummary,
+  ConversationStatus,
+  InboxFilter,
+} from "../types/inbox";
 
 type ConnectionState = "checking" | "connected" | "disconnected";
 
@@ -23,6 +32,9 @@ function matchesFilter(chat: ChatSummary, filter: InboxFilter): boolean {
   }
   if (filter === "needs_igor") {
     return chat.status === "NEEDS_IGOR";
+  }
+  if (filter === "urgent") {
+    return chat.ai_priority === "urgent";
   }
   if (filter === "typex" || filter === "slack" || filter === "telegram") {
     return chat.platform === filter;
@@ -39,12 +51,27 @@ function matchesSearch(chat: ChatSummary, search: string): boolean {
   return haystack.includes(query);
 }
 
+function panelErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Could not analyze message";
+  if (message === "No incoming messages") {
+    return "No incoming messages";
+  }
+  if (message.toLowerCase().includes("failed") || message.toLowerCase().includes("analyze")) {
+    return "Could not analyze message";
+  }
+  return message || "Analysis unavailable";
+}
+
 export function InboxPage() {
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [seeding, setSeeding] = useState(false);
@@ -63,6 +90,24 @@ export function InboxPage() {
       return items[0]?.id ?? null;
     });
   }
+
+  const visibleChats = useMemo(
+    () => chats.filter((chat) => matchesFilter(chat, filter) && matchesSearch(chat, search)),
+    [chats, filter, search],
+  );
+
+  const resolvedSelectedId = useMemo(() => {
+    if (selectedId !== null && visibleChats.some((chat) => chat.id === selectedId)) {
+      return selectedId;
+    }
+    return visibleChats[0]?.id ?? null;
+  }, [visibleChats, selectedId]);
+
+  useEffect(() => {
+    if (resolvedSelectedId !== selectedId) {
+      setSelectedId(resolvedSelectedId);
+    }
+  }, [resolvedSelectedId, selectedId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,13 +136,14 @@ export function InboxPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedId === null) {
+    if (resolvedSelectedId === null) {
       setMessages([]);
+      setAnalysis(null);
       return;
     }
     let cancelled = false;
     setMessagesLoading(true);
-    fetchChatMessages(selectedId)
+    fetchChatMessages(resolvedSelectedId)
       .then((items) => {
         if (!cancelled) {
           setMessages(items);
@@ -116,14 +162,40 @@ export function InboxPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [resolvedSelectedId]);
 
-  const visibleChats = useMemo(
-    () => chats.filter((chat) => matchesFilter(chat, filter) && matchesSearch(chat, search)),
-    [chats, filter, search],
-  );
+  useEffect(() => {
+    if (resolvedSelectedId === null) {
+      setAnalysis(null);
+      setAnalysisError("");
+      return;
+    }
+    let cancelled = false;
+    setAnalysisLoading(true);
+    setAnalysisError("");
+    fetchChatAnalysis(resolvedSelectedId)
+      .then((item) => {
+        if (!cancelled) {
+          setAnalysis(item);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setAnalysis(null);
+          setAnalysisError(panelErrorMessage(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnalysisLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedSelectedId]);
 
-  const selectedChat = chats.find((chat) => chat.id === selectedId) ?? null;
+  const selectedChat = visibleChats.find((chat) => chat.id === resolvedSelectedId) ?? null;
 
   async function handleSeed() {
     setSeeding(true);
@@ -139,16 +211,35 @@ export function InboxPage() {
   }
 
   async function handleStatusChange(status: ConversationStatus) {
-    if (selectedId === null) {
+    if (resolvedSelectedId === null) {
       return;
     }
     try {
-      const updated = await updateChatStatus(selectedId, status);
+      const updated = await updateChatStatus(resolvedSelectedId, status);
       setChats((current) =>
         current.map((chat) => (chat.id === updated.id ? { ...chat, status: updated.status } : chat)),
       );
     } catch {
       setError("Could not update status.");
+    }
+  }
+
+  async function handleAnalyze(force: boolean) {
+    if (resolvedSelectedId === null) {
+      return;
+    }
+    setAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const result = force
+        ? await reanalyzeChat(resolvedSelectedId)
+        : await analyzeChat(resolvedSelectedId);
+      setAnalysis(result);
+      await loadChats(resolvedSelectedId);
+    } catch (err: unknown) {
+      setAnalysisError(panelErrorMessage(err));
+    } finally {
+      setAnalyzing(false);
     }
   }
 
@@ -165,7 +256,7 @@ export function InboxPage() {
     <div className="inbox-shell">
       <Sidebar
         chats={visibleChats}
-        selectedId={selectedId}
+        selectedId={resolvedSelectedId}
         filter={filter}
         search={search}
         onFilterChange={setFilter}
@@ -183,7 +274,18 @@ export function InboxPage() {
           void handleStatusChange(status);
         }}
       />
-      <AIAnalysisPanel />
+      <AIAnalysisPanel
+        analysis={analysis}
+        loading={analysisLoading}
+        analyzing={analyzing}
+        error={analysisError}
+        onAnalyze={() => {
+          void handleAnalyze(false);
+        }}
+        onReanalyze={() => {
+          void handleAnalyze(true);
+        }}
+      />
     </div>
   );
 }

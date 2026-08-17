@@ -20,7 +20,14 @@ export function ChatListItem({ chat, selected, onSelect }: ChatListItemProps) {
       </div>
       <div className="chat-list-item__name">{chat.name}</div>
       <div className="chat-list-item__preview">{chat.last_message_preview ?? "No messages"}</div>
-      <div className="chat-list-item__status">{chat.status.replaceAll("_", " ")}</div>
+      <div className="chat-list-item__status">
+        <span>{chat.status.replaceAll("_", " ")}</span>
+        {chat.ai_priority ? (
+          <span className={`priority-tag priority-tag--${chat.ai_priority}`}>
+            {chat.ai_priority.toUpperCase()}
+          </span>
+        ) : null}
+      </div>
     </button>
   );
 }

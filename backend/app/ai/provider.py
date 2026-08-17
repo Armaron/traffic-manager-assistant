@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any
+
+from app.schemas.analysis import AIAnalysisContext, AIAnalysisResult
 
 
 class AIProvider(ABC):
@@ -11,9 +12,9 @@ class AIProvider(ABC):
     name: str
 
     @abstractmethod
-    async def analyze_message(self, context: dict[str, Any]) -> dict[str, Any]:
+    async def analyze_message(self, context: AIAnalysisContext) -> AIAnalysisResult:
         """Return a structured analysis for one inbox item."""
 
     @abstractmethod
-    async def generate_reply(self, context: dict[str, Any]) -> str:
+    async def generate_reply(self, context: AIAnalysisContext) -> str | None:
         """Return a draft reply. Never send it automatically."""

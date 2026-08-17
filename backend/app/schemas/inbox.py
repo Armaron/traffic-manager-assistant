@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.enums import ChatType, ConversationStatus, Platform
+from app.enums import ChatType, ConversationStatus, Platform, Priority
 
 
 class ChatStatusUpdate(BaseModel):
@@ -21,6 +21,9 @@ class ChatSummary(BaseModel):
     last_message_preview: str | None
     last_sender_name: str | None
     message_count: int
+    ai_priority: Priority | None = None
+    ai_needs_reply: bool | None = None
+    ai_needs_igor: bool | None = None
 
 
 class SeedResult(BaseModel):
@@ -30,3 +33,10 @@ class SeedResult(BaseModel):
     messages_existing: int = 0
     chats_total: int = 0
     messages_total: int = 0
+
+
+class AnalyzeAllResult(BaseModel):
+    analyzed: int = 0
+    existing: int = 0
+    skipped: int = 0
+

@@ -146,4 +146,4 @@ Until that is wired, keep `TYPEX_MODE=mock`. Do not use browser scraping.
 
 ## Next step
 
-**Phase 5:** Mock AI analysis for selected messages.
+**Phase 5:** Real AI via OpenRouter. Mock analysis already works.

@@ -10,6 +10,8 @@ export type ConversationStatus =
   | "RESOLVED"
   | "NEEDS_IGOR";
 
+export type Priority = "urgent" | "high" | "normal" | "low";
+
 export type InboxFilter =
   | "all"
   | "needs_reply"
@@ -29,6 +31,9 @@ export type ChatSummary = {
   last_message_preview: string | null;
   last_sender_name: string | null;
   message_count: number;
+  ai_priority: Priority | null;
+  ai_needs_reply: boolean | null;
+  ai_needs_igor: boolean | null;
 };
 
 export type ChatDetail = {
@@ -64,3 +69,35 @@ export type SeedResult = {
   chats_total: number;
   messages_total: number;
 };
+
+export type ImportantEntities = {
+  geo: string[];
+  traffic_source: string[];
+  payment_model: string[];
+  numbers: string[];
+};
+
+export type AIAnalysis = {
+  id: number;
+  message_id: number;
+  summary: string;
+  request: string;
+  category: string;
+  priority: Priority;
+  needs_reply: boolean;
+  needs_igor: boolean;
+  reason: string;
+  draft_reply: string | null;
+  important_entities: ImportantEntities | null;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AnalyzeAllResult = {
+  analyzed: number;
+  existing: number;
+  skipped: number;
+};
+

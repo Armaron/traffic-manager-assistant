@@ -13,7 +13,8 @@ async def seed_mock_inbox(session: Session) -> SeedResult:
     ingestion = MessageIngestionService(session)
     result = SeedResult()
     demo_status_by_chat = {
-        item.chat.external_id: item.demo_status for item in build_mock_conversations()
+        (item.chat.platform, item.chat.external_id): item.demo_status
+        for item in build_mock_conversations()
     }
 
     for adapter in mock_adapters():
@@ -22,7 +23,9 @@ async def seed_mock_inbox(session: Session) -> SeedResult:
             chat, created = ingestion.ingest_chat(unified_chat)
             if created:
                 result.chats_created += 1
-                demo_status = demo_status_by_chat.get(unified_chat.external_id)
+                demo_status = demo_status_by_chat.get(
+                    (unified_chat.platform, unified_chat.external_id)
+                )
                 if demo_status is not None:
                     chat.status = demo_status
             else:

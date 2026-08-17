@@ -1,10 +1,10 @@
 import type { InboxFilter } from "../types/inbox";
 
-const FILTERS: { id: InboxFilter; label: string; disabled?: boolean }[] = [
+const FILTERS: { id: InboxFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "needs_reply", label: "Needs reply" },
   { id: "needs_igor", label: "Needs Igor" },
-  { id: "urgent", label: "Urgent", disabled: true },
+  { id: "urgent", label: "Urgent" },
   { id: "typex", label: "TypeX" },
   { id: "slack", label: "Slack" },
   { id: "telegram", label: "Telegram" },
@@ -24,8 +24,6 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
           type="button"
           role="tab"
           className={value === filter.id ? "is-active" : ""}
-          disabled={filter.disabled}
-          title={filter.disabled ? "Available after AI analysis" : undefined}
           onClick={() => onChange(filter.id)}
         >
           {filter.label}
