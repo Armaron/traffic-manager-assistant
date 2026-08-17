@@ -6,13 +6,26 @@ from time import perf_counter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.enums import MessageDirection
 from app.integrations.base import MessengerAdapter
-from app.integrations.typex_errors import TypeXConnectionError
+from app.integrations.typex_errors import TypeXConnectionError, TypeXSyncNotReadyError
 from app.models import Contact
 from app.schemas.inbox import TypeXSyncResult
 from app.services.message_ingestion import MessageIngestionService
 
 logger = logging.getLogger(__name__)
+
+
+def _require_sync_readiness(adapter: MessengerAdapter) -> None:
+    readiness_fn = getattr(adapter, "sync_readiness", None)
+    if not callable(readiness_fn):
+        return
+    readiness = readiness_fn()
+    if not getattr(readiness, "ready", False):
+        raise TypeXSyncNotReadyError(
+            getattr(readiness, "reason", None) or "TypeX sync is not ready",
+            reason_code=getattr(readiness, "reason_code", None),
+        )
 
 
 async def sync_typex_messages(
@@ -24,6 +37,7 @@ async def sync_typex_messages(
 ) -> TypeXSyncResult:
     """Read chats/messages through the adapter and ingest. Never calls AI."""
     started = perf_counter()
+    _require_sync_readiness(adapter)
     ensure_ready = getattr(adapter, "ensure_ready_for_sync", None)
     if callable(ensure_ready):
         await ensure_ready()
@@ -43,8 +57,14 @@ async def sync_typex_messages(
         messages = (await adapter.get_messages(unified_chat.external_id))[-message_limit:]
         seen = getattr(adapter, "last_messages_seen", len(messages))
         skipped = getattr(adapter, "last_messages_skipped", 0)
+        unknown = getattr(adapter, "last_messages_unknown_direction", None)
         result.messages_seen += seen
         result.messages_skipped += skipped
+        if unknown is None:
+            unknown = sum(1 for item in messages if item.direction == MessageDirection.UNKNOWN)
+        result.messages_unknown_direction += unknown
+        result.messages_incoming += sum(1 for item in messages if item.direction == MessageDirection.INCOMING)
+        result.messages_outgoing += sum(1 for item in messages if item.direction == MessageDirection.OUTGOING)
         for unified_message in messages:
             _message, message_created = ingestion.ingest_message(unified_message)
             if message_created:
@@ -58,6 +78,7 @@ async def sync_typex_messages(
     logger.info(
         "typex_sync done chats_seen=%s chats_created=%s messages_seen=%s "
         "messages_created=%s messages_existing=%s messages_skipped=%s "
+        "messages_unknown_direction=%s messages_incoming=%s messages_outgoing=%s "
         "contacts_created=%s duration_ms=%s success=true",
         result.chats_seen,
         result.chats_created,
@@ -65,6 +86,9 @@ async def sync_typex_messages(
         result.messages_created,
         result.messages_existing,
         result.messages_skipped,
+        result.messages_unknown_direction,
+        result.messages_incoming,
+        result.messages_outgoing,
         result.contacts_created,
         duration_ms,
     )

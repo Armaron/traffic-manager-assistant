@@ -88,6 +88,8 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     # Import models so they register on Base.metadata before create_all.
     import app.models  # noqa: F401
+    from app.database.upgrade import apply_schema_upgrades
 
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    apply_schema_upgrades(engine)

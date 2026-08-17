@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
-from app.database.types import UTCDateTime
+from app.database.types import UTCDateTime, str_enum
+from app.enums import DirectionSource, MessageDirection, legacy_is_outgoing
 from app.time_utils import utc_now
 
 
@@ -29,7 +30,15 @@ class Message(Base):
     )
     text: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
-    is_outgoing: Mapped[bool] = mapped_column(Boolean, default=False)
+    direction: Mapped[MessageDirection] = mapped_column(
+        str_enum(MessageDirection),
+        default=MessageDirection.INCOMING,
+    )
+    direction_source: Mapped[DirectionSource] = mapped_column(
+        str_enum(DirectionSource),
+        default=DirectionSource.NATIVE,
+    )
+    is_outgoing: Mapped[bool] = mapped_column(Boolean, default=False)  # legacy: True only if direction=outgoing
     raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
@@ -40,3 +49,37 @@ class Message(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+
+
+def _sync_legacy_direction(target: Message) -> None:
+    """Keep direction authoritative; is_outgoing is derived. Honor legacy bool-only inserts."""
+    direction = target.direction
+    if direction == MessageDirection.UNKNOWN:
+        target.is_outgoing = False
+        if target.direction_source is None:
+            target.direction_source = DirectionSource.UNKNOWN
+        return
+    if direction == MessageDirection.OUTGOING:
+        target.is_outgoing = True
+        return
+    if direction == MessageDirection.INCOMING and target.is_outgoing:
+        target.direction = MessageDirection.OUTGOING
+        target.is_outgoing = True
+        return
+    if direction == MessageDirection.INCOMING:
+        target.is_outgoing = False
+        return
+    target.direction = MessageDirection.OUTGOING if target.is_outgoing else MessageDirection.INCOMING
+    target.is_outgoing = legacy_is_outgoing(target.direction)
+    if target.direction_source is None:
+        target.direction_source = DirectionSource.NATIVE
+
+
+@event.listens_for(Message, "before_insert")
+def _message_before_insert(_mapper: object, _connection: object, target: Message) -> None:
+    _sync_legacy_direction(target)
+
+
+@event.listens_for(Message, "before_update")
+def _message_before_update(_mapper: object, _connection: object, target: Message) -> None:
+    _sync_legacy_direction(target)

@@ -17,12 +17,27 @@ type SidebarProps = {
   typexMode?: string;
   typexConnected?: boolean;
   typexConfigured?: boolean;
+  typexSyncReady?: boolean;
+  typexSyncMode?: string | null;
   onSyncTypeX?: () => void;
-  syncing?: boolean;
+  typexSyncing?: boolean;
+  telegramMode?: string;
+  telegramAuthorized?: boolean;
+  telegramConnected?: boolean;
+  telegramConfigured?: boolean;
+  telegramSyncReady?: boolean;
+  onSyncTelegram?: () => void;
+  telegramSyncing?: boolean;
   syncNote?: string;
 };
 
-function typexStatusLabel(mode: string, connected: boolean, configured: boolean): string {
+function typexStatusLabel(
+  mode: string,
+  connected: boolean,
+  configured: boolean,
+  syncReady: boolean,
+  syncMode: string | null,
+): string {
   if (mode !== "real") {
     return "TypeX: mock";
   }
@@ -32,7 +47,34 @@ function typexStatusLabel(mode: string, connected: boolean, configured: boolean)
   if (!configured) {
     return "TypeX: configuration required";
   }
+  if (!syncReady) {
+    return "TypeX: connected · Sync unavailable";
+  }
+  if (syncMode === "limited") {
+    return "TypeX: connected · Limited sync";
+  }
   return "TypeX: connected";
+}
+
+function telegramStatusLabel(
+  mode: string,
+  configured: boolean,
+  authorized: boolean,
+  connected: boolean,
+): string {
+  if (mode !== "real") {
+    return "Telegram: not configured";
+  }
+  if (!configured) {
+    return "Telegram: not configured";
+  }
+  if (!authorized) {
+    return "Telegram: authorization required";
+  }
+  if (!connected) {
+    return "Telegram: disconnected";
+  }
+  return "Telegram: connected";
 }
 
 export function Sidebar({
@@ -49,8 +91,17 @@ export function Sidebar({
   typexMode = "mock",
   typexConnected = false,
   typexConfigured = false,
+  typexSyncReady = false,
+  typexSyncMode = null,
   onSyncTypeX,
-  syncing = false,
+  typexSyncing = false,
+  telegramMode = "mock",
+  telegramAuthorized = false,
+  telegramConnected = false,
+  telegramConfigured = false,
+  telegramSyncReady = false,
+  onSyncTelegram,
+  telegramSyncing = false,
   syncNote = "",
 }: SidebarProps) {
   return (
@@ -67,20 +118,58 @@ export function Sidebar({
         onChange={(event) => onSearchChange(event.target.value)}
       />
       <FilterBar value={filter} onChange={onFilterChange} />
-      {onSyncTypeX ? (
+      {onSyncTypeX || onSyncTelegram ? (
         <div className="typex-sync">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onSyncTypeX}
-            disabled={typexMode !== "real" || !typexConnected || !typexConfigured || syncing}
-          >
-            {syncing ? "Syncing..." : "Sync TypeX"}
-          </button>
-          <p className="typex-sync__note">
-            {typexStatusLabel(typexMode, typexConnected, typexConfigured)}
-            {syncNote ? ` · ${syncNote}` : ""}
-          </p>
+          {onSyncTypeX ? (
+            <>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onSyncTypeX}
+                disabled={
+                  typexMode !== "real" ||
+                  !typexConnected ||
+                  !typexConfigured ||
+                  !typexSyncReady ||
+                  typexSyncing
+                }
+              >
+                {typexSyncing ? "Syncing..." : "Sync TypeX"}
+              </button>
+              <p className="typex-sync__note">
+                {typexStatusLabel(
+                  typexMode,
+                  typexConnected,
+                  typexConfigured,
+                  typexSyncReady,
+                  typexSyncMode,
+                )}
+              </p>
+              {typexMode === "real" && typexSyncMode === "limited" ? (
+                <p className="typex-sync__note">Some TypeX messages may have unknown direction.</p>
+              ) : null}
+            </>
+          ) : null}
+          {onSyncTelegram ? (
+            <>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onSyncTelegram}
+                disabled={
+                  telegramMode !== "real" ||
+                  !telegramAuthorized ||
+                  !telegramConnected ||
+                  !telegramSyncReady ||
+                  telegramSyncing
+                }
+              >
+                {telegramSyncing ? "Syncing..." : "Sync Telegram"}
+              </button>
+              <p className="typex-sync__note">{telegramStatusLabel(telegramMode, telegramConfigured, telegramAuthorized, telegramConnected)}</p>
+            </>
+          ) : null}
+          {syncNote ? <p className="typex-sync__note">{syncNote}</p> : null}
         </div>
       ) : null}
       {empty ? (

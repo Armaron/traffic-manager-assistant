@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.enums import ChatType, Platform
-from app.integrations.typex_direction import resolve_typex_direction
+from app.enums import ChatType, DirectionSource, MessageDirection, Platform
+from app.integrations.typex_direction import TypeXDirectionResult, resolve_typex_direction
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 CHAT_ID_KEYS = (
@@ -246,11 +246,9 @@ def map_message(
             item.get("sender_name") or item.get("from_name") or item.get("send_name")
         )
     if direction_context is not None:
-        outgoing = resolve_typex_direction(item, direction_context)
+        resolved = resolve_typex_direction(item, direction_context)
     else:
-        outgoing = resolve_is_outgoing(item, sender_id=sender_id, current_user_id=current_user_id)
-    if outgoing is None:
-        return None
+        resolved = _direction_without_context(item, sender_id=sender_id, current_user_id=current_user_id)
     return UnifiedMessage(
         platform=Platform.TYPEX,
         external_id=external_id,
@@ -260,12 +258,34 @@ def map_message(
         sender_name=sender_name,
         text=text_value,
         timestamp=timestamp,
-        is_outgoing=outgoing,
+        direction=resolved.direction,
+        direction_source=resolved.source,
+        is_outgoing=resolved.direction == MessageDirection.OUTGOING,
         raw_data=None,
     )
 
 
 OUTGOING_BOOL_KEYS = ("is_outgoing", "is_self", "from_me", "outgoing")
+
+
+def _direction_without_context(
+    item: dict[str, Any],
+    *,
+    sender_id: str | None,
+    current_user_id: str | None,
+) -> TypeXDirectionResult:
+    outgoing = resolve_is_outgoing(item, sender_id=sender_id, current_user_id=current_user_id)
+    if outgoing is True:
+        for key in OUTGOING_BOOL_KEYS:
+            if isinstance(item.get(key), bool):
+                return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.NATIVE)
+        return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.STABLE_ID)
+    if outgoing is False:
+        for key in OUTGOING_BOOL_KEYS:
+            if isinstance(item.get(key), bool):
+                return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.NATIVE)
+        return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.STABLE_ID)
+    return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
 
 
 def resolve_is_outgoing(

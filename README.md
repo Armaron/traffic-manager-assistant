@@ -141,10 +141,35 @@ Real TypeX access uses **TypeX Desktop MCP** (read-only in this version). Docs: 
 
 - Enable MCP in TypeX Desktop if the installed version exposes it.
 - Set `TYPEX_MCP_URL` to the endpoint from that TypeX version. The default `http://127.0.0.1:52222/mcp/` is a fallback only — verify it before `TYPEX_MODE=real`.
-- Set `TYPEX_MODE=real` and click **Sync TypeX** only after required tool bindings are filled. This reads chats/messages only. It does **not** send and does **not** call OpenRouter.
 - Diagnose tools without message content: `python -m app.integrations.typex_discover`
+- Real TypeX Sync is **limited**: chats and messages can be imported, but many records have **unknown direction**. The Inbox stores them without treating them as incoming. Confirm direction manually before drafting a reply.
+- Do not execute a live TypeX DB import until you explicitly approve a controlled first sync (2 chats / 5 messages, OpenRouter off).
 - Until a working MCP endpoint is verified, keep `TYPEX_MODE=mock`. Do not scrape the TypeX UI.
+
+## Telegram (user account, read-only)
+
+Telegram uses the **MTProto user API** (Telethon), not Bot API. The app never sends messages, never marks chats read, and never downloads media.
+
+1. Create API credentials at [https://my.telegram.org](https://my.telegram.org) (App api_id / api_hash).
+2. Copy `.env.example` → `.env` if you have not already.
+3. Set:
+   - `TELEGRAM_MODE=real`
+   - `TELEGRAM_API_ID=`
+   - `TELEGRAM_API_HASH=`
+   - `TELEGRAM_SESSION_PATH=data/telegram.session`
+4. From `backend/` with the venv active, authorize once (interactive phone / login code / optional 2FA):
+
+```powershell
+cd C:\Users\arman\cas\backend
+.\.venv\Scripts\Activate.ps1
+python -m app.integrations.telegram_auth
+```
+
+5. Start the backend, then check `GET /integrations/telegram/health`.
+6. Use **Sync Telegram** in the Inbox only after you explicitly approve the first real sync. Do not leave credentials or the session file in git.
+
+Keep `TELEGRAM_MODE=mock` for local development without Telegram credentials.
 
 ## Next step
 
-Slack and Telegram real adapters are not wired yet.
+Slack real adapter is not wired yet. TypeX Limited Sync is implemented but the first live DB import still needs explicit approval (2 chats / 5 messages, OpenRouter off).

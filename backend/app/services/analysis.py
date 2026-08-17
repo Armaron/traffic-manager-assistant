@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.provider import AIProvider
+from app.enums import MessageDirection
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.analysis import AIAnalysisResult
 from app.schemas.inbox import AnalyzeAllResult
@@ -54,6 +55,8 @@ class AIAnalysisService:
         try:
             context = build_analysis_context(self.session, message_id)
             result = await self.provider.analyze_message(context)
+            if message.direction == MessageDirection.UNKNOWN:
+                result = _conservative_unknown_result(result)
             row = existing or AIAnalysis(message_id=message_id)
             self._apply_result(row, result)
             if existing is None:
@@ -96,6 +99,21 @@ class AIAnalysisService:
             self.provider, "model", None
         )
         row.updated_at = utc_now()
+
+
+def _conservative_unknown_result(result: AIAnalysisResult) -> AIAnalysisResult:
+    """UNKNOWN direction: summary is allowed, reply drafting is not."""
+    reason = (result.reason or "").strip()
+    note = "Direction confirmation required before reply drafting."
+    if note not in reason:
+        reason = f"{reason} {note}".strip() if reason else note
+    return result.model_copy(
+        update={
+            "needs_reply": False,
+            "draft_reply": None,
+            "reason": reason,
+        }
+    )
 
 
 async def analyze_all_chats(session: Session, provider: AIProvider) -> AnalyzeAllResult:

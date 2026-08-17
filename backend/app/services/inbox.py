@@ -1,7 +1,7 @@
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.enums import ConversationStatus
+from app.enums import ConversationStatus, MessageDirection
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.inbox import ChatSummary
 from app.time_utils import utc_now
@@ -48,7 +48,7 @@ def list_chat_summaries(session: Session) -> list[ChatSummary]:
                 order_by=(Message.timestamp.desc(), Message.id.desc()),
             )
             .label("rn"),
-        ).where(Message.is_outgoing.is_(False))
+        ).where(Message.direction == MessageDirection.INCOMING)
     ).subquery()
 
     stmt = (
@@ -111,10 +111,26 @@ def list_messages(session: Session, chat_id: int) -> list[Message]:
 def last_incoming_message(session: Session, chat_id: int) -> Message | None:
     return session.scalars(
         select(Message)
-        .where(Message.chat_id == chat_id, Message.is_outgoing.is_(False))
+        .where(Message.chat_id == chat_id, Message.direction == MessageDirection.INCOMING)
         .order_by(Message.timestamp.desc(), Message.id.desc())
         .limit(1)
     ).first()
+
+
+def last_unknown_message(session: Session, chat_id: int) -> Message | None:
+    return session.scalars(
+        select(Message)
+        .where(Message.chat_id == chat_id, Message.direction == MessageDirection.UNKNOWN)
+        .order_by(Message.timestamp.desc(), Message.id.desc())
+        .limit(1)
+    ).first()
+
+
+def analysis_target_message(session: Session, chat_id: int) -> Message | None:
+    incoming = last_incoming_message(session, chat_id)
+    if incoming is not None:
+        return incoming
+    return last_unknown_message(session, chat_id)
 
 
 def update_chat_status(

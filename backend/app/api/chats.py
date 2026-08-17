@@ -59,19 +59,19 @@ def _analysis_service(db: DbSession) -> AIAnalysisService:
     return AIAnalysisService(db, provider)
 
 
-def _incoming_or_error(db: DbSession, chat_id: int, *, missing_status: int) -> Message:
+def _target_or_error(db: DbSession, chat_id: int, *, missing_status: int) -> Message:
     chat = inbox_service.get_chat(db, chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
-    incoming = inbox_service.last_incoming_message(db, chat_id)
-    if incoming is None:
+    target = inbox_service.analysis_target_message(db, chat_id)
+    if target is None:
         raise HTTPException(status_code=missing_status, detail="No incoming messages")
-    return incoming
+    return target
 
 
 @router.get("/{chat_id}/analysis", response_model=AIAnalysisRead)
 def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _incoming_or_error(db, chat_id, missing_status=404)
+    incoming = _target_or_error(db, chat_id, missing_status=404)
     analysis = db.scalar(select(AIAnalysis).where(AIAnalysis.message_id == incoming.id))
     if analysis is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
@@ -80,7 +80,7 @@ def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
 
 @router.post("/{chat_id}/analyze", response_model=AIAnalysisRead)
 async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _incoming_or_error(db, chat_id, missing_status=400)
+    incoming = _target_or_error(db, chat_id, missing_status=400)
     try:
         analysis = await _analysis_service(db).analyze_message(incoming.id)
     except AIProviderError as exc:
@@ -92,7 +92,7 @@ async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
 
 @router.post("/{chat_id}/reanalyze", response_model=AIAnalysisRead)
 async def reanalyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _incoming_or_error(db, chat_id, missing_status=400)
+    incoming = _target_or_error(db, chat_id, missing_status=400)
     try:
         analysis = await _analysis_service(db).reanalyze_message(incoming.id)
     except AIProviderError as exc:

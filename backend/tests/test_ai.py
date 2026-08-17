@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.mock_provider import MockAIProvider
-from app.enums import AnalysisCategory, ChatType, ConversationStatus, Platform, Priority
+from app.enums import AnalysisCategory, ChatType, ConversationStatus, DirectionSource, MessageDirection, Platform, Priority
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.analysis import AIAnalysisContext, AIAnalysisResult, ImportantEntities
 from app.schemas.chat import ChatRead
@@ -42,7 +42,28 @@ def _add_chat_with_messages(session: Session, texts: list[str]) -> Chat:
     return chat
 
 
-def test_analysis_result_validation() -> None:
+def test_prompt_serializes_unknown_not_as_incoming() -> None:
+    from app.ai.prompts import _direction_label, _format_history
+
+    unknown = MessageRead(
+        id=1,
+        chat_id=1,
+        external_id="x",
+        sender_external_id=None,
+        sender_name="John",
+        contact_id=None,
+        text="Can you confirm the CPA?",
+        timestamp=_ts(),
+        direction=MessageDirection.UNKNOWN,
+        direction_source=DirectionSource.UNKNOWN,
+        is_outgoing=False,
+        created_at=_ts(),
+    )
+    assert _direction_label(unknown) == "UNKNOWN"
+    history = _format_history([unknown])
+    assert "[UNKNOWN]" in history
+    assert "[INCOMING]" not in history
+
     result = AIAnalysisResult(
         summary="Партнёр спрашивает welcome offer.",
         request="Получить условия welcome offer.",
@@ -147,3 +168,63 @@ def test_reanalyze_updates_same_row(db_session: Session) -> None:
     assert updated.needs_igor is True
     assert updated.updated_at >= original_updated
     assert db_session.scalar(select(func.count()).select_from(AIAnalysis)) == 1
+
+
+def test_unknown_direction_summary_blocks_draft(db_session: Session) -> None:
+    chat = Chat(
+        platform=Platform.TYPEX,
+        external_id="tx-unknown",
+        name="Affiliate John",
+        chat_type=ChatType.DIRECT,
+    )
+    db_session.add(chat)
+    db_session.flush()
+    message = Message(
+        chat_id=chat.id,
+        external_id="u-1",
+        sender_name="John",
+        text="Can we increase CPA for Indonesia PWA traffic?",
+        timestamp=_ts(),
+        direction=MessageDirection.UNKNOWN,
+        direction_source=DirectionSource.UNKNOWN,
+    )
+    db_session.add(message)
+    db_session.commit()
+    service = AIAnalysisService(db_session, MockAIProvider())
+    analysis = asyncio.run(service.analyze_message(message.id))
+    db_session.commit()
+    assert analysis.summary
+    assert analysis.draft_reply is None
+    assert analysis.needs_reply is False
+    assert "Direction confirmation required" in analysis.reason
+
+
+def test_manual_incoming_allows_normal_draft(db_session: Session) -> None:
+    from app.services.message_direction import set_message_direction
+
+    chat = Chat(
+        platform=Platform.TYPEX,
+        external_id="tx-unknown-2",
+        name="Affiliate John",
+        chat_type=ChatType.DIRECT,
+    )
+    db_session.add(chat)
+    db_session.flush()
+    message = Message(
+        chat_id=chat.id,
+        external_id="u-2",
+        sender_name="John",
+        text="Can we increase CPA for Indonesia PWA traffic?",
+        timestamp=_ts(),
+        direction=MessageDirection.UNKNOWN,
+        direction_source=DirectionSource.UNKNOWN,
+    )
+    db_session.add(message)
+    db_session.commit()
+    set_message_direction(db_session, message.id, MessageDirection.INCOMING)
+    db_session.commit()
+    service = AIAnalysisService(db_session, MockAIProvider())
+    analysis = asyncio.run(service.analyze_message(message.id))
+    db_session.commit()
+    assert analysis.needs_reply is True
+    assert analysis.draft_reply is not None

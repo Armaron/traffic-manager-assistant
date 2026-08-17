@@ -12,7 +12,7 @@ Send/edit/delete/reaction/archive/mute/block tools are never wrapped.
 from __future__ import annotations
 
 from app.config import Settings, get_settings
-from app.enums import Platform
+from app.enums import MessageDirection, Platform
 from app.integrations.base import MessengerAdapter
 from app.integrations.typex_bindings import (
     build_chats_arguments,
@@ -39,6 +39,7 @@ from app.integrations.typex_mapping import (
 )
 from app.integrations.typex_mcp import TypeXMCPClient
 from app.integrations.typex_policy import MCPTool, clean_tool_name, is_write_tool
+from app.integrations.typex_readiness import TypeXSyncReadiness, real_typex_sync_readiness
 from app.integrations.typex_resolver import (
     CONVERSATION_RESOLVER_TOOL,
     ResolvedTypeXConversation,
@@ -78,6 +79,7 @@ class TypeXAdapter(MessengerAdapter):
         self._resolver: TypeXConversationResolver | None = None
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
+        self.last_messages_unknown_direction = 0
         if self._chats_tool == "typex.list_folder_feeds":
             self._client.allow_internal_read_tool(CONVERSATION_RESOLVER_TOOL)
             self._resolver = TypeXConversationResolver(self._client)
@@ -105,6 +107,10 @@ class TypeXAdapter(MessengerAdapter):
         if self._messages_tool is None:
             missing.append("TYPEX_MESSAGES_TOOL")
         return missing
+
+    def sync_readiness(self) -> TypeXSyncReadiness:
+        """Limited Sync is ready when configured. Direction may still be UNKNOWN."""
+        return real_typex_sync_readiness(configured=self.is_configured())
 
     async def health_check(self) -> bool:
         return await self._client.health_check()
@@ -169,6 +175,7 @@ class TypeXAdapter(MessengerAdapter):
     async def get_messages(self, chat_id: str) -> list[UnifiedMessage]:
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
+        self.last_messages_unknown_direction = 0
         tool = await self._require_configured_tool(self._messages_tool)
         if not is_safely_scoped_messages_tool(tool):
             raise TypeXToolUnavailableError("TypeX read operation failed")
@@ -186,6 +193,7 @@ class TypeXAdapter(MessengerAdapter):
         raw_items = extract_list(payload)
         self.last_messages_seen = len(raw_items)
         skipped = 0
+        unknown = 0
         direction_context = self._direction_context_for(chat)
         for item in raw_items:
             mapped = map_message(
@@ -197,8 +205,11 @@ class TypeXAdapter(MessengerAdapter):
             if mapped is None:
                 skipped += 1
                 continue
+            if mapped.direction == MessageDirection.UNKNOWN:
+                unknown += 1
             messages.append(mapped)
         self.last_messages_skipped = skipped
+        self.last_messages_unknown_direction = unknown
         messages.sort(key=lambda item: item.timestamp)
         return messages[-self._message_limit :]
 

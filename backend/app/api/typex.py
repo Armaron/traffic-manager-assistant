@@ -4,12 +4,22 @@ from app.api.deps import DbSession, http_for_typex
 from app.config import get_settings
 from app.integrations.factory import get_typex_adapter
 from app.integrations.typex import TypeXAdapter
-from app.integrations.typex_errors import TypeXError
+from app.integrations.typex_errors import TypeXConfigurationError, TypeXError, TypeXSyncNotReadyError
 from app.integrations.typex_policy import missing_required_tool_bindings
+from app.integrations.typex_readiness import TypeXSyncReadiness, mock_typex_sync_readiness
 from app.schemas.inbox import TypeXHealth, TypeXSyncResult
 from app.services.typex_sync import sync_typex_messages
 
 router = APIRouter(prefix="/integrations/typex", tags=["typex"])
+
+
+def _adapter_sync_readiness(adapter: object, *, mode: str) -> TypeXSyncReadiness:
+    readiness_fn = getattr(adapter, "sync_readiness", None)
+    if callable(readiness_fn):
+        return readiness_fn()
+    if mode == "mock":
+        return mock_typex_sync_readiness()
+    return TypeXSyncReadiness(ready=False, reason_code="configuration_required", sync_mode="limited")
 
 
 @router.get("/health", response_model=TypeXHealth)
@@ -18,6 +28,16 @@ async def typex_health() -> TypeXHealth:
     mode = (settings.typex_mode or "").strip().lower()
     missing = missing_required_tool_bindings(settings) if mode == "real" else []
     configured = mode == "mock" or not missing
+    readiness = (
+        mock_typex_sync_readiness()
+        if mode == "mock"
+        else TypeXSyncReadiness(
+            ready=False,
+            sync_mode="limited",
+            warning_code="message_direction_partial",
+            reason_code="configuration_required",
+        )
+    )
     try:
         adapter = get_typex_adapter()
         connected = await adapter.health_check()
@@ -30,11 +50,16 @@ async def typex_health() -> TypeXHealth:
             discovery_complete = bool(adapter._client.discovered_tools)
             configured = adapter.is_configured()
             missing = adapter.missing_required_bindings()
+        readiness = _adapter_sync_readiness(adapter, mode=mode)
         return TypeXHealth(
             mode=mode,
             connected=connected,
             discovery_complete=discovery_complete,
             configured=configured,
+            sync_ready=readiness.ready,
+            sync_mode=readiness.sync_mode,
+            warning_code=readiness.warning_code,
+            sync_block_reason=None if readiness.ready else readiness.reason_code,
             available_tools_count=tools_count,
             allowed_read_tools_count=allowed_count,
             missing_required_tools=missing,
@@ -45,6 +70,10 @@ async def typex_health() -> TypeXHealth:
             connected=False,
             discovery_complete=False,
             configured=configured,
+            sync_ready=False,
+            sync_mode=readiness.sync_mode,
+            warning_code=readiness.warning_code,
+            sync_block_reason=None if readiness.ready else readiness.reason_code,
             missing_required_tools=missing,
         )
 
@@ -54,6 +83,14 @@ async def typex_sync(db: DbSession) -> TypeXSyncResult:
     settings = get_settings()
     try:
         adapter = get_typex_adapter()
+        if isinstance(adapter, TypeXAdapter) and not adapter.is_configured():
+            raise TypeXConfigurationError("TypeX configuration required")
+        readiness = _adapter_sync_readiness(adapter, mode=(settings.typex_mode or "").strip().lower())
+        if not readiness.ready:
+            raise TypeXSyncNotReadyError(
+                readiness.reason or "TypeX sync is not ready",
+                reason_code=readiness.reason_code,
+            )
         result = await sync_typex_messages(
             db,
             adapter,

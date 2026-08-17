@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSummary, ConversationStatus } from "../types/inbox";
+import type { ChatMessage, ChatSummary, ConversationStatus, MessageDirection } from "../types/inbox";
 import { platformLabel } from "../utils/format";
 import { MessageBubble } from "./MessageBubble";
 import { StatusSelector } from "./StatusSelector";
@@ -8,6 +8,7 @@ type ConversationViewProps = {
   messages: ChatMessage[];
   loading: boolean;
   onStatusChange: (status: ConversationStatus) => void;
+  onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
 };
 
 export function ConversationView({
@@ -15,6 +16,7 @@ export function ConversationView({
   messages,
   loading,
   onStatusChange,
+  onDirectionChange,
 }: ConversationViewProps) {
   if (!chat) {
     return (
@@ -37,7 +39,13 @@ export function ConversationView({
         {loading ? (
           <p className="empty-note">Loading messages…</p>
         ) : (
-          messages.map((message) => <MessageBubble key={message.id} message={message} />)
+          messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onDirectionChange={message.direction === "unknown" ? onDirectionChange : undefined}
+            />
+          ))
         )}
       </div>
     </section>

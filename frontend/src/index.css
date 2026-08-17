@@ -286,6 +286,29 @@ select {
   background: var(--outgoing);
 }
 
+.message-bubble.is-unknown {
+  align-self: center;
+  background: #eef1f4;
+  border: 1px dashed var(--line);
+}
+
+.message-bubble__unknown {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.message-bubble__badge {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.message-bubble__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .message-bubble p {
   white-space: pre-wrap;
   line-height: 1.45;

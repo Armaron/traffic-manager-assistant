@@ -1,0 +1,51 @@
+class TelegramError(Exception):
+    """Safe Telegram integration failure. Never include secrets or message text."""
+
+
+class TelegramConfigurationError(TelegramError):
+    """Missing or invalid Telegram settings."""
+
+
+class TelegramAuthorizationError(TelegramError):
+    """Telegram user session is missing or invalid."""
+
+
+class TelegramConnectionError(TelegramError):
+    """Telegram API is unreachable."""
+
+
+class TelegramRateLimitError(TelegramError):
+    """Telegram FloodWait or rate limit. Never includes wait internals."""
+
+
+class TelegramReadError(TelegramError):
+    """A Telegram read operation failed."""
+
+
+def public_telegram_message(exc: TelegramError) -> str:
+    if isinstance(exc, TelegramConfigurationError):
+        text = str(exc)
+        if "Unknown Telegram mode" in text:
+            return "Unknown Telegram mode"
+        return "Telegram configuration required"
+    if isinstance(exc, TelegramAuthorizationError):
+        return "Telegram authorization required"
+    if isinstance(exc, TelegramConnectionError):
+        return "Telegram is not connected"
+    if isinstance(exc, TelegramRateLimitError):
+        return "Telegram rate limit reached"
+    if isinstance(exc, TelegramReadError):
+        return "Telegram read failed"
+    return "Telegram unavailable"
+
+
+def public_telegram_status(exc: TelegramError) -> int:
+    if isinstance(exc, TelegramConfigurationError):
+        return 400
+    if isinstance(exc, TelegramAuthorizationError):
+        return 401
+    if isinstance(exc, TelegramRateLimitError):
+        return 429
+    if isinstance(exc, TelegramConnectionError):
+        return 503
+    return 502

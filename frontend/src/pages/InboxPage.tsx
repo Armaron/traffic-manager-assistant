@@ -9,11 +9,14 @@ import {
   fetchChatMessages,
   fetchChats,
   fetchHealth,
+  fetchTelegramHealth,
   fetchTypeXHealth,
   reanalyzeChat,
   seedMockData,
+  syncTelegram,
   syncTypeX,
   updateChatStatus,
+  updateMessageDirection,
 } from "../services/api";
 import type {
   AIAnalysis,
@@ -21,6 +24,7 @@ import type {
   ChatSummary,
   ConversationStatus,
   InboxFilter,
+  MessageDirection,
 } from "../types/inbox";
 
 type ConnectionState = "checking" | "connected" | "disconnected";
@@ -86,11 +90,19 @@ export function InboxPage() {
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [seeding, setSeeding] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [typexSyncing, setTypexSyncing] = useState(false);
+  const [telegramSyncing, setTelegramSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState("");
   const [typexMode, setTypexMode] = useState("mock");
   const [typexConnected, setTypexConnected] = useState(false);
   const [typexConfigured, setTypexConfigured] = useState(false);
+  const [typexSyncReady, setTypexSyncReady] = useState(false);
+  const [typexSyncMode, setTypexSyncMode] = useState<string | null>(null);
+  const [telegramMode, setTelegramMode] = useState("mock");
+  const [telegramConfigured, setTelegramConfigured] = useState(false);
+  const [telegramAuthorized, setTelegramAuthorized] = useState(false);
+  const [telegramConnected, setTelegramConnected] = useState(false);
+  const [telegramSyncReady, setTelegramSyncReady] = useState(false);
   const [error, setError] = useState("");
 
   async function loadChats(preferredId?: number | null) {
@@ -135,11 +147,23 @@ export function InboxPage() {
           return;
         }
         setConnection("connected");
-        const typex = await fetchTypeXHealth();
+        const [typex, telegram] = await Promise.all([
+          fetchTypeXHealth(),
+          fetchTelegramHealth().catch(() => null),
+        ]);
         if (!cancelled) {
           setTypexMode(typex.mode);
           setTypexConnected(typex.connected);
           setTypexConfigured(typex.configured);
+          setTypexSyncReady(typex.sync_ready);
+          setTypexSyncMode(typex.sync_mode);
+          if (telegram) {
+            setTelegramMode(telegram.mode);
+            setTelegramConfigured(telegram.configured);
+            setTelegramAuthorized(telegram.authorized);
+            setTelegramConnected(telegram.connected);
+            setTelegramSyncReady(telegram.sync_ready);
+          }
         }
         await loadChats();
         setError("");
@@ -220,7 +244,7 @@ export function InboxPage() {
   const selectedChat = visibleChats.find((chat) => chat.id === resolvedSelectedId) ?? null;
 
   async function handleSyncTypeX() {
-    setSyncing(true);
+    setTypexSyncing(true);
     try {
       const result = await syncTypeX();
       await loadChats();
@@ -228,13 +252,36 @@ export function InboxPage() {
       setTypexMode(typex.mode);
       setTypexConnected(typex.connected);
       setTypexConfigured(typex.configured);
-      setSyncNote(`${result.messages_created} new messages`);
+      setTypexSyncReady(typex.sync_ready);
+      setTypexSyncMode(typex.sync_mode);
+      setSyncNote(`${result.messages_created} new TypeX messages`);
       setError("");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "TypeX MCP unavailable";
       setSyncNote(message);
     } finally {
-      setSyncing(false);
+      setTypexSyncing(false);
+    }
+  }
+
+  async function handleSyncTelegram() {
+    setTelegramSyncing(true);
+    try {
+      const result = await syncTelegram();
+      await loadChats();
+      const telegram = await fetchTelegramHealth();
+      setTelegramMode(telegram.mode);
+      setTelegramConfigured(telegram.configured);
+      setTelegramAuthorized(telegram.authorized);
+      setTelegramConnected(telegram.connected);
+      setTelegramSyncReady(telegram.sync_ready);
+      setSyncNote(`${result.messages_created} new Telegram messages`);
+      setError("");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Telegram unavailable";
+      setSyncNote(message);
+    } finally {
+      setTelegramSyncing(false);
     }
   }
 
@@ -262,6 +309,16 @@ export function InboxPage() {
       );
     } catch {
       setError("Could not update status.");
+    }
+  }
+
+  async function handleDirectionChange(messageId: number, direction: MessageDirection) {
+    try {
+      const updated = await updateMessageDirection(messageId, direction);
+      setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setError("");
+    } catch {
+      setError("Could not update message direction.");
     }
   }
 
@@ -309,10 +366,21 @@ export function InboxPage() {
         typexMode={typexMode}
         typexConnected={typexConnected}
         typexConfigured={typexConfigured}
+        typexSyncReady={typexSyncReady}
+        typexSyncMode={typexSyncMode}
         onSyncTypeX={() => {
           void handleSyncTypeX();
         }}
-        syncing={syncing}
+        typexSyncing={typexSyncing}
+        telegramMode={telegramMode}
+        telegramConfigured={telegramConfigured}
+        telegramAuthorized={telegramAuthorized}
+        telegramConnected={telegramConnected}
+        telegramSyncReady={telegramSyncReady}
+        onSyncTelegram={() => {
+          void handleSyncTelegram();
+        }}
+        telegramSyncing={telegramSyncing}
         syncNote={syncNote}
       />
       <ConversationView
@@ -322,12 +390,19 @@ export function InboxPage() {
         onStatusChange={(status) => {
           void handleStatusChange(status);
         }}
+        onDirectionChange={(messageId, direction) => {
+          void handleDirectionChange(messageId, direction);
+        }}
       />
       <AIAnalysisPanel
         analysis={analysis}
         loading={analysisLoading}
         analyzing={analyzing}
         error={analysisError}
+        directionConfirmationRequired={
+          [...messages].reverse().find((item) => item.direction === "incoming") == null &&
+          messages.some((item) => item.direction === "unknown")
+        }
         onAnalyze={() => {
           void handleAnalyze(false);
         }}

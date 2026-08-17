@@ -47,6 +47,9 @@ def test_typex_health_mock(api_client: TestClient) -> None:
     assert payload["connected"] is True
     assert payload["configured"] is True
     assert payload["discovery_complete"] is True
+    assert payload["sync_ready"] is True
+    assert payload["sync_mode"] == "full"
+    assert payload["sync_block_reason"] is None
     assert payload["missing_required_tools"] == []
 
 
@@ -128,6 +131,7 @@ def test_sync_blocked_if_configured_tool_not_in_discovery(
     assert response.status_code == 502
     assert response.json()["detail"] == "TypeX read operation failed"
     assert db_session.scalar(select(func.count()).select_from(Chat)) == 0
+    assert db_session.scalar(select(func.count()).select_from(Message)) == 0
 
 
 def test_skipped_message_counted(db_session: Session) -> None:
@@ -161,9 +165,10 @@ def test_skipped_message_counted(db_session: Session) -> None:
     result = asyncio.run(sync_typex_messages(db_session, adapter, chat_limit=20, message_limit=50))
     db_session.commit()
     assert result.messages_seen == 2
-    assert result.messages_skipped == 1
-    assert result.messages_created == 1
-    assert db_session.scalar(select(func.count()).select_from(Message)) == 1
+    assert result.messages_skipped == 0
+    assert result.messages_unknown_direction == 1
+    assert result.messages_created == 2
+    assert db_session.scalar(select(func.count()).select_from(Message)) == 2
 
 
 def test_fatal_sync_rolls_back_transaction(monkeypatch, api_client: TestClient, db_session: Session) -> None:
@@ -228,7 +233,97 @@ def test_health_reports_missing_required_tools(monkeypatch, api_client: TestClie
     assert payload["connected"] is True
     assert payload["configured"] is False
     assert payload["discovery_complete"] is True
+    assert payload["sync_ready"] is False
+    assert payload["sync_mode"] == "limited"
+    assert payload["warning_code"] == "message_direction_partial"
+    assert payload["sync_block_reason"] == "configuration_required"
     assert payload["missing_required_tools"] == ["TYPEX_CHATS_TOOL", "TYPEX_MESSAGES_TOOL"]
     assert "session" not in payload
     assert "tools" not in payload
+
+
+def test_real_typex_health_limited_sync_ready(monkeypatch, api_client: TestClient) -> None:
+    adapter = typex_adapter(
+        session_handler([TEST_CHAT_TOOL, TEST_MESSAGE_TOOL], default_call_result=[]),
+        chats_tool=TEST_CHAT_TOOL.name,
+        messages_tool=TEST_MESSAGE_TOOL.name,
+        current_user_tool="typex.get_me",
+    )
+    monkeypatch.setattr("app.api.typex.get_typex_adapter", lambda: adapter)
+    monkeypatch.setattr(
+        "app.api.typex.get_settings",
+        lambda: SimpleNamespace(
+            typex_mode="real",
+            typex_chats_tool=TEST_CHAT_TOOL.name,
+            typex_messages_tool=TEST_MESSAGE_TOOL.name,
+            typex_current_user_tool="typex.get_me",
+            typex_sender_tool=None,
+        ),
+    )
+    response = api_client.get("/integrations/typex/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "real"
+    assert payload["connected"] is True
+    assert payload["configured"] is True
+    assert payload["discovery_complete"] is True
+    assert payload["sync_ready"] is True
+    assert payload["sync_mode"] == "limited"
+    assert payload["warning_code"] == "message_direction_partial"
+    assert payload["sync_block_reason"] is None
+    assert "session" not in payload
+    assert "content" not in str(payload).lower()
+
+
+def test_limited_sync_imports_unknown_direction(
+    monkeypatch, api_client: TestClient, db_session: Session
+) -> None:
+    calls: dict[str, list[dict]] = {}
+    adapter = typex_adapter(
+        session_handler(
+            [TEST_CHAT_TOOL, TEST_MESSAGE_TOOL],
+            calls=calls,
+            call_results={
+                TEST_CHAT_TOOL.name: [{"id": "tx-1", "name": "Affiliate John", "type": "direct"}],
+                TEST_MESSAGE_TOOL.name: [
+                    {
+                        "message_ref": "msg-1",
+                        "send_name": "John",
+                        "send_at": "2026-08-17T10:00:00Z",
+                        "content": "Can you confirm the CPA?",
+                    }
+                ],
+            },
+        ),
+        chats_tool=TEST_CHAT_TOOL.name,
+        messages_tool=TEST_MESSAGE_TOOL.name,
+        current_user_tool=None,
+    )
+    monkeypatch.setattr("app.api.typex.get_typex_adapter", lambda: adapter)
+    response = api_client.post("/integrations/typex/sync")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages_created"] == 1
+    assert payload["messages_unknown_direction"] == 1
+    stored = db_session.scalar(select(Message))
+    assert stored is not None
+    assert stored.direction.value == "unknown"
+    assert stored.sender_name == "John"
+    assert stored.contact_id is None
+    assert db_session.scalar(select(func.count()).select_from(ContactIdentity)) == 0
+
+
+def test_no_unsafe_typex_sync_bypass_settings() -> None:
+    from app.config import Settings
+    from app.integrations.typex_readiness import TYPEX_FULL_DIRECTION_AVAILABLE
+
+    assert TYPEX_FULL_DIRECTION_AVAILABLE is False
+    names = {name.lower() for name in Settings.model_fields}
+    forbidden = {
+        "allow_unsafe_typex_sync",
+        "force_typex_sync",
+        "ignore_direction",
+        "dev_bypass",
+    }
+    assert names.isdisjoint(forbidden)
 

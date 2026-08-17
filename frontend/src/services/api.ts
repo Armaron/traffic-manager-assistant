@@ -6,7 +6,10 @@ import type {
   ChatMessage,
   ChatSummary,
   ConversationStatus,
+  MessageDirection,
   SeedResult,
+  TelegramHealth,
+  TelegramSyncResult,
   TypeXHealth,
   TypeXSyncResult,
 } from "../types/inbox";
@@ -99,4 +102,22 @@ export function fetchTypeXHealth(): Promise<TypeXHealth> {
 
 export function syncTypeX(): Promise<TypeXSyncResult> {
   return request<TypeXSyncResult>("/api/integrations/typex/sync", { method: "POST" });
+}
+
+export function fetchTelegramHealth(): Promise<TelegramHealth> {
+  return request<TelegramHealth>("/api/integrations/telegram/health");
+}
+
+export function syncTelegram(): Promise<TelegramSyncResult> {
+  return request<TelegramSyncResult>("/api/integrations/telegram/sync", { method: "POST" });
+}
+
+export function updateMessageDirection(
+  messageId: number,
+  direction: MessageDirection,
+): Promise<ChatMessage> {
+  return request<ChatMessage>(`/api/messages/${messageId}/direction`, {
+    method: "PATCH",
+    body: JSON.stringify({ direction }),
+  });
 }

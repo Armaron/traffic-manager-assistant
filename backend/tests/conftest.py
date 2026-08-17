@@ -17,6 +17,7 @@ _TEST_DB = Path(_TMP_DIR.name) / "test.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.resolve().as_posix()}"
 os.environ["AI_PROVIDER"] = "mock"
 os.environ["TYPEX_MODE"] = "mock"
+os.environ["TELEGRAM_MODE"] = "mock"
 
 import pytest
 

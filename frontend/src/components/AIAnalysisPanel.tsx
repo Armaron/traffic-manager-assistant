@@ -5,6 +5,7 @@ type AIAnalysisPanelProps = {
   loading: boolean;
   analyzing: boolean;
   error: string;
+  directionConfirmationRequired?: boolean;
   onAnalyze: () => void;
   onReanalyze: () => void;
 };
@@ -26,6 +27,7 @@ export function AIAnalysisPanel({
   loading,
   analyzing,
   error,
+  directionConfirmationRequired = false,
   onAnalyze,
   onReanalyze,
 }: AIAnalysisPanelProps) {
@@ -55,6 +57,10 @@ export function AIAnalysisPanel({
           AI: {analysis.provider === "openrouter" ? "OpenRouter" : analysis.provider}
           {analysis.model ? ` · Model: ${analysis.model}` : ""}
         </p>
+      ) : null}
+
+      {directionConfirmationRequired ? (
+        <p className="ai-panel__note">Direction confirmation required before reply drafting.</p>
       ) : null}
 
       {loading ? <p className="ai-panel__note">Loading analysis…</p> : null}

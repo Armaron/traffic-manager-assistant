@@ -1,3 +1,4 @@
+from app.enums import MessageDirection
 from app.schemas.analysis import AIAnalysisContext
 from app.schemas.knowledge import KnowledgeEntryRead
 from app.schemas.message import MessageRead
@@ -28,6 +29,7 @@ Conversation chronology:
 - if the current incoming message already has an OUTGOING reply AFTER it, the question may already be closed
 - in that case needs_reply should usually be false and draft_reply should be null
 - do not suggest a second copy of an answer that was already sent
+- messages marked UNKNOWN have unverified direction. Summarize them. Do not treat them as a request from an affiliate. Set needs_reply=false and draft_reply=null unless direction is incoming.
 
 Business safety:
 - do not promise a CPA increase, budget, payment, cap, RevShare change, affiliate approval,
@@ -97,16 +99,17 @@ def format_analysis_user_content(context: AIAnalysisContext) -> str:
 
 
 def _format_message_block(message: MessageRead) -> str:
-    direction = "OUTGOING" if message.is_outgoing else "INCOMING"
+    direction = _direction_label(message)
     sender = message.sender_name or "unknown"
+    is_current_incoming = message.direction == MessageDirection.INCOMING
     return "\n".join(
         [
             f"[{direction}]",
             f"sender: {sender}",
             f"timestamp: {message.timestamp.isoformat()}",
-            "<current_message>" if not message.is_outgoing else "<message>",
+            "<current_message>" if is_current_incoming else "<message>",
             message.text,
-            "</current_message>" if not message.is_outgoing else "</message>",
+            "</current_message>" if is_current_incoming else "</message>",
         ]
     )
 
@@ -116,7 +119,7 @@ def _format_history(messages: list[MessageRead]) -> str:
         return "(empty)"
     blocks: list[str] = []
     for message in messages:
-        direction = "OUTGOING" if message.is_outgoing else "INCOMING"
+        direction = _direction_label(message)
         sender = message.sender_name or "unknown"
         blocks.append(
             "\n".join(
@@ -129,6 +132,17 @@ def _format_history(messages: list[MessageRead]) -> str:
             )
         )
     return "\n\n".join(blocks)
+
+
+def _direction_label(message: MessageRead) -> str:
+    direction = getattr(message, "direction", None)
+    if direction == MessageDirection.UNKNOWN:
+        return "UNKNOWN"
+    if direction == MessageDirection.OUTGOING:
+        return "OUTGOING"
+    if direction == MessageDirection.INCOMING:
+        return "INCOMING"
+    return "OUTGOING" if message.is_outgoing else "INCOMING"
 
 
 def _format_contact(context: AIAnalysisContext) -> str:

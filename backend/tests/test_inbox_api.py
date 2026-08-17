@@ -34,6 +34,8 @@ def test_get_conversation_messages_works(api_client: TestClient) -> None:
     texts = [item["text"] for item in messages]
     assert texts[0] == "Hi Igor"
     assert "What's the current welcome offer?" in texts
+    assert {item["direction"] for item in messages} <= {"incoming", "outgoing"}
+    assert all("direction" in item for item in messages)
 
 
 def test_patch_status_works(api_client: TestClient) -> None:
@@ -139,3 +141,34 @@ def test_chat_summary_includes_ai_priority(api_client: TestClient) -> None:
     john = next(item for item in chats if item["name"] == "Affiliate John")
     assert john["ai_priority"] == "low"
     assert john["ai_needs_reply"] is False
+
+
+def test_patch_message_direction_is_local_only(api_client: TestClient, db_session: Session) -> None:
+    from datetime import datetime, timezone
+
+    from app.enums import DirectionSource, MessageDirection, Platform
+    from app.schemas.unified import UnifiedMessage
+    from app.services.message_ingestion import MessageIngestionService
+
+    service = MessageIngestionService(db_session)
+    stored, _ = service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="dir-1",
+            chat_id="ref-dir",
+            chat_name="John",
+            sender_name="John",
+            text="hello",
+            timestamp=datetime(2026, 8, 17, 10, 0, tzinfo=timezone.utc),
+            direction=MessageDirection.UNKNOWN,
+            direction_source=DirectionSource.UNKNOWN,
+        )
+    )
+    db_session.commit()
+    response = api_client.patch(f"/messages/{stored.id}/direction", json={"direction": "incoming"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["direction"] == "incoming"
+    assert payload["direction_source"] == "manual"
+    assert payload["is_outgoing"] is False
+    assert payload["contact_id"] is None

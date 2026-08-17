@@ -22,10 +22,11 @@ async def lifespan(_app: FastAPI):
     init_db()
     db_path = sqlite_file_path(settings.database_url)
     logger.info(
-        "Starting %s v%s (typex_mode=%s, ai_provider=%s, db=%s)",
+        "Starting %s v%s (typex_mode=%s, telegram_mode=%s, ai_provider=%s, db=%s)",
         settings.app_name,
         settings.app_version,
         settings.typex_mode,
+        settings.telegram_mode,
         settings.ai_provider,
         db_path.name if db_path else "memory",
     )

@@ -18,6 +18,10 @@ data/*.sqlite3
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/*.session
+data/*.session-journal
+*.session
+*.session-journal
 *.db
 *.log
 

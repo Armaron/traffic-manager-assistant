@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.enums import ChatType
+from app.enums import ChatType, DirectionSource, MessageDirection
 from app.models import Chat, Message
 from app.schemas.unified import UnifiedChat, UnifiedMessage
 from app.services.contact_resolution import resolve_contact
@@ -66,8 +66,15 @@ class MessageIngestionService:
         if existing is not None:
             return existing, False
 
+        direction = payload.direction or MessageDirection.INCOMING
+        source = payload.direction_source or DirectionSource.UNKNOWN
+        is_outgoing = direction == MessageDirection.OUTGOING
         contact_id = None
-        if payload.sender_id and not payload.is_outgoing:
+        if (
+            payload.sender_id
+            and direction == MessageDirection.INCOMING
+            and payload.attach_contact
+        ):
             contact, _created = resolve_contact(
                 self.session,
                 payload.platform,
@@ -84,7 +91,9 @@ class MessageIngestionService:
             contact_id=contact_id,
             text=payload.text,
             timestamp=payload.timestamp,
-            is_outgoing=payload.is_outgoing,
+            direction=direction,
+            direction_source=source,
+            is_outgoing=is_outgoing,
             raw_data=payload.raw_data,
         )
         self.session.add(message)

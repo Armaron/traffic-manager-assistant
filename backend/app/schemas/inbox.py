@@ -46,12 +46,38 @@ class TypeXHealth(BaseModel):
     connected: bool
     discovery_complete: bool = False
     configured: bool = False
+    sync_ready: bool = False
+    sync_mode: str | None = None
+    warning_code: str | None = None
+    sync_block_reason: str | None = None
     available_tools_count: int = 0
     allowed_read_tools_count: int = 0
     missing_required_tools: list[str] = []
 
 
 class TypeXSyncResult(BaseModel):
+    chats_seen: int = 0
+    chats_created: int = 0
+    messages_seen: int = 0
+    messages_created: int = 0
+    messages_existing: int = 0
+    messages_skipped: int = 0
+    messages_unknown_direction: int = 0
+    messages_incoming: int = 0
+    messages_outgoing: int = 0
+    contacts_created: int = 0
+
+
+class TelegramHealth(BaseModel):
+    mode: str
+    configured: bool = False
+    connected: bool = False
+    authorized: bool = False
+    sync_ready: bool = False
+    missing_configuration: list[str] = []
+
+
+class TelegramSyncResult(BaseModel):
     chats_seen: int = 0
     chats_created: int = 0
     messages_seen: int = 0

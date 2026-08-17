@@ -3,6 +3,7 @@
 from app.enums import Platform
 from app.integrations.base import MessengerAdapter
 from app.integrations.mock_data import conversations_for_platform, senders_for_platform
+from app.integrations.typex_readiness import TypeXSyncReadiness, mock_typex_sync_readiness
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 
@@ -40,6 +41,9 @@ class MockMessengerAdapter(MessengerAdapter):
 class MockTypeXAdapter(MockMessengerAdapter):
     def __init__(self) -> None:
         super().__init__(Platform.TYPEX)
+
+    def sync_readiness(self) -> TypeXSyncReadiness:
+        return mock_typex_sync_readiness()
 
 
 class MockSlackAdapter(MockMessengerAdapter):

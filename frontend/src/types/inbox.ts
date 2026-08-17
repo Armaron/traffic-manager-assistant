@@ -48,6 +48,10 @@ export type ChatDetail = {
   updated_at: string;
 };
 
+export type MessageDirection = "incoming" | "outgoing" | "unknown";
+
+export type DirectionSource = "native" | "stable_id" | "manual" | "unknown";
+
 export type ChatMessage = {
   id: number;
   chat_id: number;
@@ -57,6 +61,8 @@ export type ChatMessage = {
   contact_id: number | null;
   text: string;
   timestamp: string;
+  direction: MessageDirection;
+  direction_source: DirectionSource;
   is_outgoing: boolean;
   created_at: string;
 };
@@ -75,9 +81,32 @@ export type TypeXHealth = {
   connected: boolean;
   discovery_complete: boolean;
   configured: boolean;
+  sync_ready: boolean;
+  sync_mode: string | null;
+  warning_code: string | null;
+  sync_block_reason: string | null;
   available_tools_count: number;
   allowed_read_tools_count: number;
   missing_required_tools: string[];
+};
+
+export type TelegramHealth = {
+  mode: string;
+  configured: boolean;
+  connected: boolean;
+  authorized: boolean;
+  sync_ready: boolean;
+  missing_configuration: string[];
+};
+
+export type TelegramSyncResult = {
+  chats_seen: number;
+  chats_created: number;
+  messages_seen: number;
+  messages_created: number;
+  messages_existing: number;
+  messages_skipped: number;
+  contacts_created: number;
 };
 
 export type TypeXSyncResult = {
@@ -87,6 +116,9 @@ export type TypeXSyncResult = {
   messages_created: number;
   messages_existing: number;
   messages_skipped: number;
+  messages_unknown_direction: number;
+  messages_incoming: number;
+  messages_outgoing: number;
   contacts_created: number;
 };
 

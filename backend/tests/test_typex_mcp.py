@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.enums import ChatType
+from app.enums import ChatType, MessageDirection
 from app.integrations.factory import get_typex_adapter
 from app.integrations.mock import MockTypeXAdapter
 from app.integrations.typex_errors import (
@@ -294,7 +294,7 @@ def test_outgoing_uses_account_id_not_name() -> None:
 def test_unknown_direction_is_not_incoming() -> None:
     chat = map_chat({"id": "c1", "name": "John"})
     assert chat is not None
-    skipped = map_message(
+    mapped = map_message(
         {
             "id": "m1",
             "sender_id": "u1",
@@ -304,7 +304,9 @@ def test_unknown_direction_is_not_incoming() -> None:
         chat=chat,
         current_user_id=None,
     )
-    assert skipped is None
+    assert mapped is not None
+    assert mapped.direction is MessageDirection.UNKNOWN
+    assert mapped.is_outgoing is False
 
 
 def test_unsupported_media_placeholder() -> None:
@@ -477,7 +479,7 @@ def test_blank_required_tools_block_sync_readiness() -> None:
         asyncio.run(adapter.ensure_ready_for_sync())
 
 
-def test_unknown_direction_increments_skipped() -> None:
+def test_unknown_direction_is_kept_not_skipped() -> None:
     handler = session_handler(
         [TEST_CHAT_TOOL, TEST_MESSAGE_TOOL],
         call_results={
@@ -505,9 +507,11 @@ def test_unknown_direction_increments_skipped() -> None:
         current_user_tool=None,
     )
     messages = asyncio.run(adapter.get_messages("tx-john"))
-    assert [item.external_id for item in messages] == ["ok"]
+    assert [item.external_id for item in messages] == ["ok", "skip"]
+    assert messages[1].direction is MessageDirection.UNKNOWN
     assert adapter.last_messages_seen == 2
-    assert adapter.last_messages_skipped == 1
+    assert adapter.last_messages_skipped == 0
+    assert adapter.last_messages_unknown_direction == 1
 
 
 def test_factory_returns_mock() -> None:
@@ -567,10 +571,10 @@ def test_typex_feed_without_stable_id_is_not_mapped() -> None:
     assert chat.chat_type == ChatType.DIRECT
 
 
-def test_live_style_chat_record_without_direction_is_skipped() -> None:
+def test_live_style_chat_record_without_direction_is_unknown() -> None:
     chat = map_chat({"opaque_ref": "ref-1", "name": "Affiliate John", "chat_type_label": "single chat"})
     assert chat is not None
-    skipped = map_message(
+    mapped = map_message(
         {
             "message_ref": "msg-1",
             "message_type": "text",
@@ -581,7 +585,10 @@ def test_live_style_chat_record_without_direction_is_skipped() -> None:
         chat=chat,
         current_user_id="acct-1",
     )
-    assert skipped is None
+    assert mapped is not None
+    assert mapped.direction is MessageDirection.UNKNOWN
+    assert mapped.sender_id is None
+    assert mapped.sender_name == "John"
     kept = map_message(
         {
             "message_ref": "msg-2",
@@ -779,7 +786,7 @@ def test_configured_send_message_as_chats_tool_is_denied() -> None:
     assert TYPEX_SEND_MESSAGE.name not in calls
 
 
-def test_adapter_skips_unknown_direction_and_does_not_send() -> None:
+def test_adapter_keeps_unknown_direction_and_does_not_send() -> None:
     calls: dict[str, list[dict]] = {}
     handler = session_handler(
         [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CHAT_RECORDS, TYPEX_SEND_MESSAGE],
@@ -810,7 +817,9 @@ def test_adapter_skips_unknown_direction_and_does_not_send() -> None:
         current_user_tool=None,
     )
     messages = asyncio.run(adapter.get_messages("feed-1"))
-    assert [item.external_id for item in messages] == ["ok"]
+    assert [item.external_id for item in messages] == ["ok", "skip"]
+    assert messages[1].direction is MessageDirection.UNKNOWN
     assert adapter.last_messages_seen == 2
-    assert adapter.last_messages_skipped == 1
+    assert adapter.last_messages_skipped == 0
+    assert adapter.last_messages_unknown_direction == 1
     assert TYPEX_SEND_MESSAGE.name not in calls

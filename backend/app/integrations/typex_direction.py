@@ -1,7 +1,7 @@
 """TypeX identity namespaces and message direction.
 
 Namespaces are never mixed: id↔id, uid↔uid, typex_id↔typex_id.
-Unknown direction is None — never default to incoming.
+Unresolved direction is UNKNOWN — never default to incoming.
 Display-name fallback is not implemented: send_name semantics are undocumented.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.enums import ChatType
+from app.enums import ChatType, DirectionSource, MessageDirection
 
 OUTGOING_BOOL_KEYS = ("is_outgoing", "is_self", "from_me", "outgoing")
 
@@ -107,23 +107,30 @@ def explicit_outgoing(record: dict[str, Any]) -> bool | None:
     return None
 
 
-def resolve_typex_direction(record: dict[str, Any], context: TypeXDirectionContext) -> bool | None:
-    """True=outgoing, False=incoming, None=unresolved. Never defaults to incoming."""
+@dataclass(frozen=True)
+class TypeXDirectionResult:
+    direction: MessageDirection
+    source: DirectionSource
+
+
+def resolve_typex_direction(record: dict[str, Any], context: TypeXDirectionContext) -> TypeXDirectionResult:
+    """Never defaults to incoming. Unresolved records are UNKNOWN."""
     flagged = explicit_outgoing(record)
-    if flagged is not None:
-        return flagged
+    if flagged is True:
+        return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.NATIVE)
+    if flagged is False:
+        return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.NATIVE)
     sender = identity_from_record(record)
     if sender.is_empty():
-        return None
+        return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
     if sender.matches(context.current_user):
-        return True
+        return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.STABLE_ID)
     if context.chat_type == ChatType.DIRECT and sender.matches(context.counterpart):
-        return False
+        return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.STABLE_ID)
     if not sender.is_empty() and not context.current_user.is_empty():
-        # Same-namespace fields exist on both but did not match → incoming.
         if _same_namespace_comparable(sender, context.current_user):
-            return False
-    return None
+            return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.STABLE_ID)
+    return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
 
 
 def _same_namespace_comparable(left: TypeXIdentity, right: TypeXIdentity) -> bool:

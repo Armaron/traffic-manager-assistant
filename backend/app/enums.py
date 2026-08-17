@@ -46,3 +46,21 @@ class Priority(StrEnum):
     HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
+
+
+class MessageDirection(StrEnum):
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
+    UNKNOWN = "unknown"
+
+
+class DirectionSource(StrEnum):
+    NATIVE = "native"
+    STABLE_ID = "stable_id"
+    MANUAL = "manual"
+    UNKNOWN = "unknown"
+
+
+def legacy_is_outgoing(direction: MessageDirection) -> bool:
+    """Legacy boolean: True only for outgoing. Never use this to detect incoming."""
+    return direction == MessageDirection.OUTGOING
