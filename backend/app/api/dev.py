@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
-from app.api.deps import DbSession
+from app.ai.errors import AIProviderError
+from app.ai.factory import get_ai_provider
+from app.api.deps import DbSession, http_for_ai
 from app.config import get_settings
 from app.schemas.inbox import AnalyzeAllResult, SeedResult
 from app.services.analysis import analyze_all_chats
@@ -27,12 +29,9 @@ async def analyze_all_development_chats(db: DbSession) -> AnalyzeAllResult:
         raise HTTPException(status_code=403, detail="Analyze-all is only available in development")
 
     try:
-        from app.ai.factory import get_ai_provider
-
         provider = get_ai_provider()
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-
-    result = await analyze_all_chats(db, provider)
+        result = await analyze_all_chats(db, provider)
+    except AIProviderError as exc:
+        raise http_for_ai(exc) from None
     db.commit()
     return result

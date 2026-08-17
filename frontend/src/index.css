@@ -346,6 +346,12 @@ select {
   line-height: 1.45;
 }
 
+.ai-panel__meta {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .ai-panel__error {
   color: #b42318;
   line-height: 1.45;

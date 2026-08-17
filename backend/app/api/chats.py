@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import select
 
+from app.ai.errors import AIProviderError
 from app.ai.factory import get_ai_provider
-from app.api.deps import DbSession
-from app.models import Message
+from app.api.deps import DbSession, http_for_ai
+from app.models import AIAnalysis, Message
 from app.schemas.analysis import AIAnalysisRead
 from app.schemas.chat import ChatRead
 from app.schemas.inbox import ChatStatusUpdate, ChatSummary
@@ -52,8 +54,8 @@ def patch_chat_status(
 def _analysis_service(db: DbSession) -> AIAnalysisService:
     try:
         provider = get_ai_provider()
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except AIProviderError as exc:
+        raise http_for_ai(exc) from None
     return AIAnalysisService(db, provider)
 
 
@@ -70,7 +72,7 @@ def _incoming_or_error(db: DbSession, chat_id: int, *, missing_status: int) -> M
 @router.get("/{chat_id}/analysis", response_model=AIAnalysisRead)
 def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
     incoming = _incoming_or_error(db, chat_id, missing_status=404)
-    analysis = _analysis_service(db).get_analysis(incoming.id)
+    analysis = db.scalar(select(AIAnalysis).where(AIAnalysis.message_id == incoming.id))
     if analysis is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return AIAnalysisRead.model_validate(analysis)
@@ -79,7 +81,10 @@ def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
 @router.post("/{chat_id}/analyze", response_model=AIAnalysisRead)
 async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
     incoming = _incoming_or_error(db, chat_id, missing_status=400)
-    analysis = await _analysis_service(db).analyze_message(incoming.id)
+    try:
+        analysis = await _analysis_service(db).analyze_message(incoming.id)
+    except AIProviderError as exc:
+        raise http_for_ai(exc) from None
     db.commit()
     db.refresh(analysis)
     return AIAnalysisRead.model_validate(analysis)
@@ -88,7 +93,10 @@ async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
 @router.post("/{chat_id}/reanalyze", response_model=AIAnalysisRead)
 async def reanalyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
     incoming = _incoming_or_error(db, chat_id, missing_status=400)
-    analysis = await _analysis_service(db).reanalyze_message(incoming.id)
+    try:
+        analysis = await _analysis_service(db).reanalyze_message(incoming.id)
+    except AIProviderError as exc:
+        raise http_for_ai(exc) from None
     db.commit()
     db.refresh(analysis)
     return AIAnalysisRead.model_validate(analysis)

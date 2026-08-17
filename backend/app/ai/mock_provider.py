@@ -136,6 +136,7 @@ class MockAIProvider(AIProvider):
 
     name = "mock"
     model = "mock-v1"
+    resolved_model = "mock-v1"
 
     async def analyze_message(self, context: AIAnalysisContext) -> AIAnalysisResult:
         text = context.current_message.text.lower()
@@ -154,7 +155,3 @@ class MockAIProvider(AIProvider):
             draft_reply=f"Hi {sender}, thanks. I'll check and get back to you.",
             important_entities=ImportantEntities(),
         )
-
-    async def generate_reply(self, context: AIAnalysisContext) -> str | None:
-        result = await self.analyze_message(context)
-        return result.draft_reply

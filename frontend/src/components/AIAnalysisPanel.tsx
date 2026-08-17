@@ -50,6 +50,12 @@ export function AIAnalysisPanel({
           </button>
         )}
       </div>
+      {analysis?.provider ? (
+        <p className="ai-panel__meta">
+          AI: {analysis.provider === "openrouter" ? "OpenRouter" : analysis.provider}
+          {analysis.model ? ` · Model: ${analysis.model}` : ""}
+        </p>
+      ) : null}
 
       {loading ? <p className="ai-panel__note">Loading analysis…</p> : null}
       {analyzing && !loading ? <p className="ai-panel__note">Analyzing...</p> : null}

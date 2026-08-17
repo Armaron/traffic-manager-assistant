@@ -61,21 +61,23 @@ class AIAnalysisService:
             self.session.flush()
             duration_ms = int((perf_counter() - started) * 1000)
             logger.info(
-                "ai_analyze done message_id=%s chat_id=%s provider=%s duration_ms=%s success=true",
+                "ai_analyze done message_id=%s chat_id=%s provider=%s model=%s duration_ms=%s success=true",
                 message_id,
                 message.chat_id,
                 self.provider.name,
+                getattr(self.provider, "resolved_model", None) or getattr(self.provider, "model", None),
                 duration_ms,
             )
             return row
-        except Exception:
+        except Exception as exc:
             duration_ms = int((perf_counter() - started) * 1000)
-            logger.exception(
-                "ai_analyze done message_id=%s chat_id=%s provider=%s duration_ms=%s success=false",
+            logger.error(
+                "ai_analyze done message_id=%s chat_id=%s provider=%s duration_ms=%s success=false error_type=%s",
                 message_id,
                 message.chat_id,
                 self.provider.name,
                 duration_ms,
+                type(exc).__name__,
             )
             raise
 
@@ -90,7 +92,9 @@ class AIAnalysisService:
         row.draft_reply = result.draft_reply
         row.important_entities = result.important_entities.model_dump()
         row.provider = self.provider.name
-        row.model = getattr(self.provider, "model", None)
+        row.model = getattr(self.provider, "resolved_model", None) or getattr(
+            self.provider, "model", None
+        )
         row.updated_at = utc_now()
 
 

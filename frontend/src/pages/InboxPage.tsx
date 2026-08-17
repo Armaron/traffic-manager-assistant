@@ -53,8 +53,14 @@ function matchesSearch(chat: ChatSummary, search: string): boolean {
 
 function panelErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "Could not analyze message";
-  if (message === "No incoming messages") {
-    return "No incoming messages";
+  if (
+    message === "No incoming messages" ||
+    message === "AI provider unavailable" ||
+    message === "OpenRouter authentication failed" ||
+    message === "OpenRouter API key is not configured" ||
+    message === "OpenRouter model is not configured"
+  ) {
+    return message;
   }
   if (message.toLowerCase().includes("failed") || message.toLowerCase().includes("analyze")) {
     return "Could not analyze message";

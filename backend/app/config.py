@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     ai_provider: str = "mock"
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout_seconds: float = 30.0
     database_url: str = Field(default_factory=default_database_url)
 
 
