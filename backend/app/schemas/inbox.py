@@ -44,8 +44,11 @@ class AnalyzeAllResult(BaseModel):
 class TypeXHealth(BaseModel):
     mode: str
     connected: bool
+    discovery_complete: bool = False
+    configured: bool = False
     available_tools_count: int = 0
     allowed_read_tools_count: int = 0
+    missing_required_tools: list[str] = []
 
 
 class TypeXSyncResult(BaseModel):
@@ -54,6 +57,7 @@ class TypeXSyncResult(BaseModel):
     messages_seen: int = 0
     messages_created: int = 0
     messages_existing: int = 0
+    messages_skipped: int = 0
     contacts_created: int = 0
 
 

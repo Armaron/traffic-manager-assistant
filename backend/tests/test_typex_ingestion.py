@@ -129,3 +129,60 @@ def test_same_external_id_other_platform_does_not_collide(db_session: Session) -
     assert typex.contact_id != slack.contact_id
     assert db_session.scalar(select(func.count()).select_from(Contact)) == 2
     assert db_session.scalar(select(func.count()).select_from(ContactIdentity)) == 2
+
+
+def test_outgoing_self_does_not_create_contact(db_session: Session) -> None:
+    service = MessageIngestionService(db_session)
+    message, created = service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="tx-out-1",
+            chat_id="tx-john",
+            chat_name="Affiliate John",
+            sender_id="tx-user-igor",
+            sender_name="Igor",
+            text="Thanks",
+            timestamp=_ts(10),
+            is_outgoing=True,
+        )
+    )
+    db_session.commit()
+    assert created is True
+    assert message.contact_id is None
+    assert db_session.scalar(select(func.count()).select_from(Contact)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ContactIdentity)) == 0
+
+
+def test_outgoing_does_not_attach_existing_self_contact(db_session: Session) -> None:
+    service = MessageIngestionService(db_session)
+    incoming, _ = service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="tx-m-1",
+            chat_id="tx-john",
+            chat_name="Affiliate John",
+            sender_id="tx-user-john",
+            sender_name="John",
+            text="We've started traffic today.",
+            timestamp=_ts(10),
+            is_outgoing=False,
+        )
+    )
+    outgoing, _ = service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="tx-m-2",
+            chat_id="tx-john",
+            chat_name="Affiliate John",
+            sender_id="tx-user-igor",
+            sender_name="Igor",
+            text="Thanks",
+            timestamp=_ts(11),
+            is_outgoing=True,
+        )
+    )
+    db_session.commit()
+    assert incoming.contact_id is not None
+    assert outgoing.contact_id is None
+    assert db_session.scalar(select(func.count()).select_from(Contact)) == 1
+    assert db_session.scalar(select(func.count()).select_from(ContactIdentity)) == 1

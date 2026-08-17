@@ -73,8 +73,11 @@ export type SeedResult = {
 export type TypeXHealth = {
   mode: string;
   connected: boolean;
+  discovery_complete: boolean;
+  configured: boolean;
   available_tools_count: number;
   allowed_read_tools_count: number;
+  missing_required_tools: string[];
 };
 
 export type TypeXSyncResult = {
@@ -83,6 +86,7 @@ export type TypeXSyncResult = {
   messages_seen: number;
   messages_created: number;
   messages_existing: number;
+  messages_skipped: number;
   contacts_created: number;
 };
 

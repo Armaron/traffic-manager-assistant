@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     typex_request_timeout_seconds: float = 15.0
     typex_sync_chat_limit: int = 20
     typex_sync_message_limit: int = 50
+    # Exact TypeX MCP tool names. Fill after discovery. Do not guess.
+    typex_chats_tool: str | None = None
+    typex_messages_tool: str | None = None
+    typex_current_user_tool: str | None = None
+    typex_sender_tool: str | None = None
     ai_provider: str = "mock"
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None

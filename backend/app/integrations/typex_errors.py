@@ -20,7 +20,10 @@ class TypeXToolUnavailableError(TypeXError):
 
 def public_typex_message(exc: TypeXError) -> str:
     if isinstance(exc, TypeXConfigurationError):
-        return str(exc)
+        text = str(exc)
+        if "Unknown TypeX mode" in text:
+            return "Unknown TypeX mode"
+        return "TypeX configuration required"
     if isinstance(exc, TypeXConnectionError):
         return "TypeX is not connected"
     if isinstance(exc, TypeXToolUnavailableError):
@@ -30,7 +33,7 @@ def public_typex_message(exc: TypeXError) -> str:
 
 def public_typex_status(exc: TypeXError) -> int:
     if isinstance(exc, TypeXConfigurationError):
-        return 500
+        return 400
     if isinstance(exc, TypeXConnectionError):
         return 503
     return 502

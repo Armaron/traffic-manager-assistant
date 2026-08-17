@@ -90,6 +90,7 @@ export function InboxPage() {
   const [syncNote, setSyncNote] = useState("");
   const [typexMode, setTypexMode] = useState("mock");
   const [typexConnected, setTypexConnected] = useState(false);
+  const [typexConfigured, setTypexConfigured] = useState(false);
   const [error, setError] = useState("");
 
   async function loadChats(preferredId?: number | null) {
@@ -138,6 +139,7 @@ export function InboxPage() {
         if (!cancelled) {
           setTypexMode(typex.mode);
           setTypexConnected(typex.connected);
+          setTypexConfigured(typex.configured);
         }
         await loadChats();
         setError("");
@@ -225,6 +227,7 @@ export function InboxPage() {
       const typex = await fetchTypeXHealth();
       setTypexMode(typex.mode);
       setTypexConnected(typex.connected);
+      setTypexConfigured(typex.configured);
       setSyncNote(`${result.messages_created} new messages`);
       setError("");
     } catch (err: unknown) {
@@ -305,6 +308,7 @@ export function InboxPage() {
         empty={chats.length === 0}
         typexMode={typexMode}
         typexConnected={typexConnected}
+        typexConfigured={typexConfigured}
         onSyncTypeX={() => {
           void handleSyncTypeX();
         }}

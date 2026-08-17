@@ -16,10 +16,24 @@ type SidebarProps = {
   empty?: boolean;
   typexMode?: string;
   typexConnected?: boolean;
+  typexConfigured?: boolean;
   onSyncTypeX?: () => void;
   syncing?: boolean;
   syncNote?: string;
 };
+
+function typexStatusLabel(mode: string, connected: boolean, configured: boolean): string {
+  if (mode !== "real") {
+    return "TypeX: mock";
+  }
+  if (!connected) {
+    return "TypeX: disconnected";
+  }
+  if (!configured) {
+    return "TypeX: configuration required";
+  }
+  return "TypeX: connected";
+}
 
 export function Sidebar({
   chats,
@@ -34,6 +48,7 @@ export function Sidebar({
   empty = false,
   typexMode = "mock",
   typexConnected = false,
+  typexConfigured = false,
   onSyncTypeX,
   syncing = false,
   syncNote = "",
@@ -58,16 +73,12 @@ export function Sidebar({
             type="button"
             className="ghost-button"
             onClick={onSyncTypeX}
-            disabled={typexMode !== "real" || syncing}
+            disabled={typexMode !== "real" || !typexConnected || !typexConfigured || syncing}
           >
             {syncing ? "Syncing..." : "Sync TypeX"}
           </button>
           <p className="typex-sync__note">
-            {typexMode !== "real"
-              ? "TypeX: mock"
-              : typexConnected
-                ? "TypeX: connected"
-                : "TypeX: disconnected"}
+            {typexStatusLabel(typexMode, typexConnected, typexConfigured)}
             {syncNote ? ` · ${syncNote}` : ""}
           </p>
         </div>

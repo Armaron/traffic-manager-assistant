@@ -137,15 +137,9 @@ def map_message(
         sender_name = as_str_id(sender_name_value) if sender_name_value else as_str_id(
             item.get("sender_name") or item.get("from_name")
         )
-    outgoing_flag = item.get("is_outgoing")
-    if outgoing_flag is None:
-        outgoing_flag = item.get("is_self") or item.get("from_me") or item.get("outgoing")
-    if isinstance(outgoing_flag, bool):
-        is_outgoing = outgoing_flag
-    elif current_user_id and sender_id:
-        is_outgoing = sender_id == current_user_id
-    else:
-        is_outgoing = False
+    outgoing = resolve_is_outgoing(item, sender_id=sender_id, current_user_id=current_user_id)
+    if outgoing is None:
+        return None
     return UnifiedMessage(
         platform=Platform.TYPEX,
         external_id=external_id,
@@ -155,9 +149,31 @@ def map_message(
         sender_name=sender_name,
         text=text_value,
         timestamp=timestamp,
-        is_outgoing=is_outgoing,
+        is_outgoing=outgoing,
         raw_data=None,
     )
+
+
+OUTGOING_BOOL_KEYS = ("is_outgoing", "is_self", "from_me", "outgoing")
+
+
+def resolve_is_outgoing(
+    item: dict[str, Any],
+    *,
+    sender_id: str | None,
+    current_user_id: str | None,
+) -> bool | None:
+    """Return outgoing flag only from explicit booleans or current-user match.
+
+    Unknown direction is None — never default to incoming.
+    """
+    for key in OUTGOING_BOOL_KEYS:
+        value = item.get(key)
+        if isinstance(value, bool):
+            return value
+    if current_user_id and sender_id:
+        return sender_id == current_user_id
+    return None
 
 
 def map_sender(item: dict[str, Any]) -> UnifiedSender | None:

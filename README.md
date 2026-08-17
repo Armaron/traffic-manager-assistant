@@ -137,12 +137,13 @@ Inbox talks to messengers through `MessengerAdapter`. TypeX, Slack, and Telegram
 
 ## TypeX note
 
-Real TypeX access uses **TypeX Desktop MCP** (read-only in this version). Official docs: [TypeX MCP](https://docs.typex.im/).
+Real TypeX access uses **TypeX Desktop MCP** (read-only in this version). Docs: [TypeX MCP](https://docs.typex.im/).
 
-- Enable MCP in TypeX Desktop. Confirmed local endpoint: `http://127.0.0.1:52222/mcp/`.
-- Set `TYPEX_MODE=real` and click **Sync TypeX**. This reads chats/messages only. It does **not** send and does **not** call OpenRouter.
+- Enable MCP in TypeX Desktop if the installed version exposes it.
+- Set `TYPEX_MCP_URL` to the endpoint from that TypeX version. The default `http://127.0.0.1:52222/mcp/` is a fallback only — verify it before `TYPEX_MODE=real`.
+- Set `TYPEX_MODE=real` and click **Sync TypeX** only after required tool bindings are filled. This reads chats/messages only. It does **not** send and does **not** call OpenRouter.
 - Diagnose tools without message content: `python -m app.integrations.typex_discover`
-- Until TypeX Desktop is running, keep `TYPEX_MODE=mock`. Do not scrape the TypeX UI.
+- Until a working MCP endpoint is verified, keep `TYPEX_MODE=mock`. Do not scrape the TypeX UI.
 
 ## Next step
 

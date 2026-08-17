@@ -64,7 +64,7 @@ class MessageIngestionService:
             return existing, False
 
         contact_id = None
-        if payload.sender_id:
+        if payload.sender_id and not payload.is_outgoing:
             contact, _created = resolve_contact(
                 self.session,
                 payload.platform,

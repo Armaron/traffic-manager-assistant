@@ -1,14 +1,20 @@
-"""Read-only TypeX MCP policy.
+"""TypeX MCP policy.
 
-Live tool names are taken from MCP discovery, never from a guessed catalog.
-Write-capable tools are denied even if TypeX Desktop exposes them.
+Runtime authorization is exact configured tool names only.
+Unknown / unconfigured tool = deny.
+
+Keyword classification is diagnostics-only (discovery report, warnings).
+It must never grant call permission.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
+from app.config import Settings
+
+# Diagnostics only. Never used to authorize a tools/call.
 WRITE_MARKERS = (
     "send",
     "reply",
@@ -27,6 +33,12 @@ WRITE_MARKERS = (
     "mark_read",
     "add_contact",
     "add-contact",
+    "archive",
+    "mute",
+    "block",
+    "pin",
+    "leave",
+    "unfollow",
 )
 
 READ_MARKERS = (
@@ -50,6 +62,12 @@ READ_MARKERS = (
     "current",
 )
 
+MESSAGE_CHAT_ID_FIELDS = ("chat_id", "conversation_id", "group_id", "target_id", "id")
+LIMIT_FIELDS = ("limit", "page_size", "pageSize", "count", "max_results", "size")
+SENDER_ID_FIELDS = ("user_id", "sender_id", "id", "uid")
+
+DiagnosticKind = Literal["read", "write", "unknown"]
+
 
 @dataclass(frozen=True)
 class MCPTool:
@@ -62,37 +80,82 @@ class MCPTool:
         return f"{self.name} {self.description}".lower().replace("-", "_")
 
 
+def clean_tool_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def configured_read_tool_names(settings: Settings) -> set[str]:
+    """Exact operator-configured allowlist. Blank names are ignored."""
+    names = (
+        settings.typex_chats_tool,
+        settings.typex_messages_tool,
+        settings.typex_current_user_tool,
+        settings.typex_sender_tool,
+    )
+    return {item for item in (clean_tool_name(name) for name in names) if item}
+
+
+def missing_required_tool_bindings(settings: Settings) -> list[str]:
+    missing: list[str] = []
+    if clean_tool_name(settings.typex_chats_tool) is None:
+        missing.append("TYPEX_CHATS_TOOL")
+    if clean_tool_name(settings.typex_messages_tool) is None:
+        missing.append("TYPEX_MESSAGES_TOOL")
+    return missing
+
+
 def is_write_tool(tool: MCPTool) -> bool:
+    """Diagnostic classification only."""
     blob = tool.blob
     return any(marker in blob for marker in WRITE_MARKERS)
 
 
 def is_read_tool(tool: MCPTool) -> bool:
+    """Diagnostic classification only. Never grants authorization."""
     if is_write_tool(tool):
         return False
     blob = tool.blob
     return any(marker in blob for marker in READ_MARKERS)
 
 
-def allowed_read_tools(tools: list[MCPTool]) -> list[MCPTool]:
-    return [tool for tool in tools if is_read_tool(tool)]
+def diagnostic_kind(tool: MCPTool) -> DiagnosticKind:
+    if is_write_tool(tool):
+        return "write"
+    if is_read_tool(tool):
+        return "read"
+    return "unknown"
 
 
-def pick_tool(tools: list[MCPTool], *needles: str) -> MCPTool | None:
-    allowed = allowed_read_tools(tools)
-    for needle in needles:
-        token = needle.lower().replace("-", "_")
-        for tool in allowed:
-            if _matches_needle(tool, token):
-                return tool
+def input_field_names(tool: MCPTool) -> list[str]:
+    schema = tool.input_schema or {}
+    props = schema.get("properties")
+    if not isinstance(props, dict):
+        return []
+    return [str(key) for key in props]
+
+
+def message_chat_id_field(tool: MCPTool) -> str | None:
+    fields = set(input_field_names(tool))
+    for key in MESSAGE_CHAT_ID_FIELDS:
+        if key in fields:
+            return key
     return None
 
 
-def _matches_needle(tool: MCPTool, token: str) -> bool:
-    blob = tool.blob
-    if " " in token:
-        return token in blob
-    parts = set(blob.replace("/", " ").split())
-    if token in parts:
-        return True
-    return len(token) >= 4 and token in blob
+def limit_field(tool: MCPTool) -> str | None:
+    fields = set(input_field_names(tool))
+    for key in LIMIT_FIELDS:
+        if key in fields:
+            return key
+    return None
+
+
+def sender_id_field(tool: MCPTool) -> str | None:
+    fields = set(input_field_names(tool))
+    for key in SENDER_ID_FIELDS:
+        if key in fields:
+            return key
+    return None

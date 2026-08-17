@@ -14,10 +14,11 @@ from app.integrations.typex_errors import (
     TypeXProtocolError,
     TypeXToolUnavailableError,
 )
-from app.integrations.typex_policy import MCPTool, allowed_read_tools
+from app.integrations.typex_policy import MCPTool, configured_read_tool_names
 
 logger = logging.getLogger(__name__)
 
+# Fallback only. Verify against the installed TypeX version before TYPEX_MODE=real.
 DEFAULT_MCP_URL = "http://127.0.0.1:52222/mcp/"
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -31,6 +32,7 @@ class TypeXMCPClient:
         *,
         timeout_seconds: float = 15.0,
         client: httpx.AsyncClient | None = None,
+        allowed_tool_names: set[str] | None = None,
     ) -> None:
         url = base_url.strip()
         if not url:
@@ -41,6 +43,9 @@ class TypeXMCPClient:
         self._session_id: str | None = None
         self._rpc_id = 0
         self.discovered_tools: list[MCPTool] = []
+        self._configured_allowlist = {
+            name.strip() for name in (allowed_tool_names or set()) if name and name.strip()
+        }
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> TypeXMCPClient:
@@ -48,11 +53,13 @@ class TypeXMCPClient:
         return cls(
             cfg.typex_mcp_url or DEFAULT_MCP_URL,
             timeout_seconds=cfg.typex_request_timeout_seconds,
+            allowed_tool_names=configured_read_tool_names(cfg),
         )
 
     @property
     def allowed_tool_names(self) -> set[str]:
-        return {tool.name for tool in allowed_read_tools(self.discovered_tools)}
+        """Exact configured allowlist. Discovery never adds names here."""
+        return set(self._configured_allowlist)
 
     async def health_check(self) -> bool:
         try:
@@ -101,14 +108,25 @@ class TypeXMCPClient:
             )
         self.discovered_tools = tools
         logger.info(
-            "typex_mcp tools_list count=%s allowed=%s success=true",
+            "typex_mcp tools_list count=%s configured=%s success=true",
             len(tools),
-            len(self.allowed_tool_names),
+            len(self._configured_allowlist),
         )
         return tools
 
+    def tool_by_name(self, name: str) -> MCPTool | None:
+        for tool in self.discovered_tools:
+            if tool.name == name:
+                return tool
+        return None
+
     async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
-        if name not in self.allowed_tool_names:
+        if name not in self._configured_allowlist:
+            logger.info("typex_mcp tools_call denied name=%s reason=not_configured", name)
+            raise TypeXToolUnavailableError("TypeX read operation failed")
+        await self.ensure_session()
+        if self.tool_by_name(name) is None:
+            logger.info("typex_mcp tools_call denied name=%s reason=not_discovered", name)
             raise TypeXToolUnavailableError("TypeX read operation failed")
         logger.info("typex_mcp tools_call name=%s", name)
         result = await self._rpc(
