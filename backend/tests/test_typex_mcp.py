@@ -11,21 +11,33 @@ from app.integrations.typex_errors import (
     TypeXConfigurationError,
     TypeXConnectionError,
     TypeXProtocolError,
+    TypeXToolCallError,
     TypeXToolUnavailableError,
+    public_typex_message,
 )
 from app.integrations.typex_discover import possible_chat_tools, possible_message_tools, suggest_binding
-from app.integrations.typex_mapping import map_chat, map_message
+from app.integrations.typex_mapping import map_chat, map_message, map_sender
 from app.integrations.typex_policy import diagnostic_kind, is_write_tool
 from tests.typex_helpers import (
     TEST_ARCHIVE_TOOL,
     TEST_BLOCK_TOOL,
     TEST_CHAT_TOOL,
+    TEST_CREATE_TOOL,
+    TEST_EDIT_TOOL,
     TEST_HYBRID_TOOL,
     TEST_ME_TOOL,
     TEST_MESSAGE_TOOL,
     TEST_MUTE_TOOL,
+    TEST_REPLY_TOOL,
     TEST_SEND_TOOL,
     TEST_SENDER_TOOL,
+    TEST_UPLOAD_TOOL,
+    TYPEX_ACCOUNT_WIDE_SEARCH,
+    TYPEX_GET_ME,
+    TYPEX_LIST_FOLDER_FEEDS,
+    TYPEX_SEARCH_CHAT_RECORDS,
+    TYPEX_SEARCH_CONTACT,
+    TYPEX_SEND_MESSAGE,
     mcp_client,
     session_handler,
     typex_adapter,
@@ -111,21 +123,42 @@ def test_unknown_tool_fails() -> None:
         asyncio.run(client.call_tool("not_a_real_tool", {}))
 
 
-def test_archive_can_be_called_only_when_explicitly_configured() -> None:
+def test_configured_write_tools_are_denied() -> None:
+    calls: dict[str, list[dict]] = {}
+    tools = [
+        TEST_CHAT_TOOL,
+        TEST_SEND_TOOL,
+        TEST_ARCHIVE_TOOL,
+        TEST_MUTE_TOOL,
+        TEST_BLOCK_TOOL,
+        TEST_HYBRID_TOOL,
+        TEST_EDIT_TOOL,
+        TEST_REPLY_TOOL,
+        TEST_CREATE_TOOL,
+        TEST_UPLOAD_TOOL,
+        TYPEX_SEND_MESSAGE,
+    ]
+    handler = session_handler(tools, calls=calls, default_call_result=[])
+    for tool in tools[1:]:
+        client = mcp_client(handler, allowed={tool.name})
+        with pytest.raises(TypeXToolUnavailableError):
+            asyncio.run(client.call_tool(tool.name, {}))
+        assert tool.name not in calls
+
+
+def test_configured_read_get_me_is_not_blocked_by_description() -> None:
     calls: dict[str, list[dict]] = {}
     handler = session_handler(
-        [TEST_ARCHIVE_TOOL, TEST_CHAT_TOOL],
+        [TYPEX_GET_ME],
         calls=calls,
-        call_results={TEST_ARCHIVE_TOOL.name: []},
+        call_results={TYPEX_GET_ME.name: {"id": "acct-1", "name": "Operator"}},
     )
-    denied = mcp_client(handler, allowed={TEST_CHAT_TOOL.name})
-    asyncio.run(denied.ensure_session())
-    with pytest.raises(TypeXToolUnavailableError):
-        asyncio.run(denied.call_tool(TEST_ARCHIVE_TOOL.name, {}))
-    allowed = mcp_client(handler, allowed={TEST_ARCHIVE_TOOL.name})
-    asyncio.run(allowed.call_tool(TEST_ARCHIVE_TOOL.name, {"conversation_id": "c1"}))
-    assert TEST_ARCHIVE_TOOL.name in allowed.allowed_tool_names
-    assert calls[TEST_ARCHIVE_TOOL.name] == [{"conversation_id": "c1"}]
+    client = mcp_client(handler, allowed={TYPEX_GET_ME.name})
+    payload = asyncio.run(client.call_tool(TYPEX_GET_ME.name, {}))
+    assert payload["id"] == "acct-1"
+    assert TYPEX_GET_ME.name in calls
+    assert is_write_tool(TYPEX_GET_ME) is False
+    assert diagnostic_kind(TYPEX_GET_ME) == "write"
 
 
 def test_diagnostic_kind_does_not_authorize() -> None:
@@ -488,3 +521,263 @@ def test_factory_unknown_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     with pytest.raises(TypeXConfigurationError):
         get_typex_adapter()
+
+
+def test_tools_call_is_error_is_not_success() -> None:
+    sensitive = "sensitive internal TypeX error"
+    handler = session_handler(
+        [TEST_CHAT_TOOL],
+        call_results={
+            TEST_CHAT_TOOL.name: {
+                "isError": True,
+                "content": [{"type": "text", "text": sensitive}],
+            }
+        },
+    )
+    client = mcp_client(handler, allowed={TEST_CHAT_TOOL.name})
+    with pytest.raises(TypeXToolCallError) as exc_info:
+        asyncio.run(client.call_tool(TEST_CHAT_TOOL.name, {"limit": 1}))
+    public = public_typex_message(exc_info.value)
+    assert sensitive not in str(exc_info.value)
+    assert sensitive not in public
+    assert public == "TypeX MCP unavailable"
+    assert isinstance(exc_info.value, TypeXProtocolError)
+
+
+def test_typex_feed_without_stable_id_is_not_mapped() -> None:
+    chat = map_chat(
+        {
+            "name": "Affiliate John",
+            "last_message_send_at": "2026-08-17T10:00:00Z",
+            "chat_type": 1,
+            "chat_type_label": "direct",
+        }
+    )
+    assert chat is None
+    chat = map_chat(
+        {
+            "opaque_ref": "feed-opaque-1",
+            "name": "Affiliate John",
+            "type": "direct",
+        }
+    )
+    assert chat is not None
+    assert chat.external_id == "feed-opaque-1"
+    assert chat.name == "Affiliate John"
+    assert chat.chat_type == ChatType.DIRECT
+
+
+def test_typex_chat_record_schema_mapping() -> None:
+    chat = map_chat({"opaque_ref": "feed-opaque-1", "name": "Affiliate John", "type": "direct"})
+    assert chat is not None
+    message = map_message(
+        {
+            "message_ref": "msg-1",
+            "chat_ref": "feed-opaque-1",
+            "sender_id": "u-1",
+            "sender_name": "John",
+            "content": "hello",
+            "send_time": "2026-08-17T10:00:00Z",
+            "is_outgoing": False,
+        },
+        chat=chat,
+        current_user_id="me-1",
+    )
+    assert message is not None
+    assert message.external_id == "msg-1"
+    assert message.chat_id == "feed-opaque-1"
+    assert message.chat_name == "Affiliate John"
+    assert message.sender_id == "u-1"
+    assert message.text == "hello"
+    assert message.is_outgoing is False
+
+
+def test_get_me_mapping() -> None:
+    sender = map_sender({"id": "acct-1", "name": "Operator"})
+    assert sender is not None
+    assert sender.external_id == "acct-1"
+    assert sender.name == "Operator"
+
+
+def test_get_me_nested_prefers_stable_id() -> None:
+    from app.integrations.typex_mapping import map_current_user
+
+    sender = map_current_user(
+        {
+            "ok": True,
+            "me": {
+                "id": "acct-1",
+                "uid": "uid-9",
+                "typex_id": "tx-9",
+                "name": "Operator",
+            },
+            "summary": "redacted",
+        }
+    )
+    assert sender is not None
+    assert sender.external_id == "acct-1"
+    assert sender.name == "Operator"
+
+
+def test_real_typex_bindings_construct_scoped_arguments() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CHAT_RECORDS, TYPEX_GET_ME],
+        calls=calls,
+        call_results={
+            TYPEX_LIST_FOLDER_FEEDS.name: [
+                {"opaque_ref": "feed-opaque-1", "name": "Affiliate John", "type": "direct"}
+            ],
+            TYPEX_SEARCH_CHAT_RECORDS.name: [
+                {
+                    "message_ref": "msg-1",
+                    "sender_id": "u-1",
+                    "sender_name": "John",
+                    "content": "hello",
+                    "send_time": "2026-08-17T10:00:00Z",
+                    "is_outgoing": False,
+                }
+            ],
+            TYPEX_GET_ME.name: {"id": "acct-1", "name": "Operator"},
+        },
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=TYPEX_GET_ME.name,
+    )
+    chats = asyncio.run(adapter.get_chats())
+    messages = asyncio.run(adapter.get_messages("feed-opaque-1"))
+    assert chats[0].external_id == "feed-opaque-1"
+    assert chats[0].name == "Affiliate John"
+    assert messages[0].chat_name == "Affiliate John"
+    assert calls[TYPEX_LIST_FOLDER_FEEDS.name][0] == {"all_chats": True, "limit": 20}
+    assert calls[TYPEX_SEARCH_CHAT_RECORDS.name][0] == {"opaque_ref": "feed-opaque-1", "limit": 50}
+    assert "query" not in calls[TYPEX_SEARCH_CHAT_RECORDS.name][0]
+    assert "contact_name" not in calls[TYPEX_SEARCH_CHAT_RECORDS.name][0]
+    assert TYPEX_SEND_MESSAGE.name not in calls
+
+
+def test_unknown_required_argument_fails_closed() -> None:
+    calls: dict[str, list[dict]] = {}
+    unsafe = TEST_MESSAGE_TOOL.__class__(
+        name="search_messages",
+        description="Search messages in a conversation",
+        input_schema={
+            "properties": {
+                "chat_id": {"type": "string"},
+                "secret_token": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["chat_id", "secret_token"],
+        },
+    )
+    handler = session_handler([TEST_CHAT_TOOL, unsafe], calls=calls, default_call_result=[])
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TEST_CHAT_TOOL.name,
+        messages_tool=unsafe.name,
+        current_user_tool=None,
+    )
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.get_messages("tx-john"))
+    assert unsafe.name not in calls
+
+
+def test_account_wide_search_rejected_as_messages_role() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_ACCOUNT_WIDE_SEARCH],
+        calls=calls,
+        default_call_result=[],
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_ACCOUNT_WIDE_SEARCH.name,
+        current_user_tool=None,
+    )
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.ensure_ready_for_sync())
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.get_messages("feed-opaque-1"))
+    assert TYPEX_ACCOUNT_WIDE_SEARCH.name not in calls
+
+
+def test_fuzzy_search_contact_rejected_as_sender_tool() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CHAT_RECORDS, TYPEX_SEARCH_CONTACT],
+        calls=calls,
+        default_call_result=[],
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=None,
+        sender_tool=TYPEX_SEARCH_CONTACT.name,
+    )
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.ensure_ready_for_sync())
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.get_sender("u-1"))
+    assert TYPEX_SEARCH_CONTACT.name not in calls
+
+
+def test_configured_send_message_as_chats_tool_is_denied() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_SEND_MESSAGE, TYPEX_SEARCH_CHAT_RECORDS],
+        calls=calls,
+        default_call_result=[],
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_SEND_MESSAGE.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=None,
+    )
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.ensure_ready_for_sync())
+    with pytest.raises(TypeXToolUnavailableError):
+        asyncio.run(adapter.get_chats())
+    assert TYPEX_SEND_MESSAGE.name not in calls
+
+
+def test_adapter_skips_unknown_direction_and_does_not_send() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CHAT_RECORDS, TYPEX_SEND_MESSAGE],
+        calls=calls,
+        call_results={
+            TYPEX_LIST_FOLDER_FEEDS.name: [{"opaque_ref": "feed-1", "name": "Chat"}],
+            TYPEX_SEARCH_CHAT_RECORDS.name: [
+                {
+                    "message_ref": "ok",
+                    "sender_id": "u-1",
+                    "content": "hello",
+                    "send_time": "2026-08-17T10:00:00Z",
+                    "is_outgoing": False,
+                },
+                {
+                    "message_ref": "skip",
+                    "sender_id": "maybe-me",
+                    "content": "???",
+                    "send_time": "2026-08-17T10:01:00Z",
+                },
+            ],
+        },
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=None,
+    )
+    messages = asyncio.run(adapter.get_messages("feed-1"))
+    assert [item.external_id for item in messages] == ["ok"]
+    assert adapter.last_messages_seen == 2
+    assert adapter.last_messages_skipped == 1
+    assert TYPEX_SEND_MESSAGE.name not in calls

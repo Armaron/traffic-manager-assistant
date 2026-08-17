@@ -14,6 +14,10 @@ class TypeXProtocolError(TypeXError):
     """MCP response was malformed."""
 
 
+class TypeXToolCallError(TypeXProtocolError):
+    """MCP tools/call returned isError=true. Never includes raw MCP content."""
+
+
 class TypeXToolUnavailableError(TypeXError):
     """Requested TypeX tool is missing, write-only, or not allowed."""
 

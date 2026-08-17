@@ -45,14 +45,17 @@ class MessageIngestionService:
                 Chat.external_id == payload.chat_id,
             )
         )
-        chat, _created = self.ingest_chat(
-            UnifiedChat(
-                platform=payload.platform,
-                external_id=payload.chat_id,
-                name=payload.chat_name,
-                chat_type=existing_chat.chat_type if existing_chat else ChatType.UNKNOWN,
+        if existing_chat is not None:
+            chat = existing_chat
+        else:
+            chat, _created = self.ingest_chat(
+                UnifiedChat(
+                    platform=payload.platform,
+                    external_id=payload.chat_id,
+                    name=payload.chat_name,
+                    chat_type=ChatType.UNKNOWN,
+                )
             )
-        )
 
         existing = self.session.scalar(
             select(Message).where(

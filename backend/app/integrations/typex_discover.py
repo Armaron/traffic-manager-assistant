@@ -2,20 +2,22 @@ import asyncio
 import logging
 import sys
 
+from app.integrations.typex_bindings import is_safely_scoped_messages_tool, sender_lookup_is_exact
 from app.integrations.typex_errors import TypeXError
 from app.integrations.typex_mcp import TypeXMCPClient
 from app.integrations.typex_policy import (
     MCPTool,
     diagnostic_kind,
     input_field_names,
-    message_chat_id_field,
+    is_write_tool,
+    required_field_names,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHAT_NAME_HINTS = ("conversation", "chat", "dialog", "group")
-MESSAGE_NAME_HINTS = ("message", "history")
+CHAT_NAME_HINTS = ("conversation", "chat", "dialog", "group", "feed", "folder")
+MESSAGE_NAME_HINTS = ("message", "history", "record")
 CURRENT_USER_NAME_HINTS = ("current_user", "currentuser", "get_me", "whoami", "self")
 SENDER_NAME_HINTS = ("user", "contact", "profile", "sender")
 
@@ -28,10 +30,15 @@ def _matches_any(blob: str, hints: tuple[str, ...]) -> bool:
     return any(hint in blob for hint in hints)
 
 
+def _printable(text: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
+
 def possible_chat_tools(tools: list[MCPTool]) -> list[MCPTool]:
     found: list[MCPTool] = []
     for tool in tools:
-        if diagnostic_kind(tool) != "read":
+        if is_write_tool(tool):
             continue
         blob = _name_blob(tool)
         if not _matches_any(blob, CHAT_NAME_HINTS):
@@ -45,12 +52,12 @@ def possible_chat_tools(tools: list[MCPTool]) -> list[MCPTool]:
 def possible_message_tools(tools: list[MCPTool]) -> list[MCPTool]:
     found: list[MCPTool] = []
     for tool in tools:
-        if diagnostic_kind(tool) != "read":
+        if is_write_tool(tool):
             continue
         blob = _name_blob(tool)
         if not _matches_any(blob, MESSAGE_NAME_HINTS):
             continue
-        if message_chat_id_field(tool) is None:
+        if not is_safely_scoped_messages_tool(tool):
             continue
         found.append(tool)
     return found
@@ -59,10 +66,10 @@ def possible_message_tools(tools: list[MCPTool]) -> list[MCPTool]:
 def possible_current_user_tools(tools: list[MCPTool]) -> list[MCPTool]:
     found: list[MCPTool] = []
     for tool in tools:
-        if diagnostic_kind(tool) != "read":
+        if is_write_tool(tool):
             continue
         blob = _name_blob(tool)
-        if blob in {"me", "get_me"} or _matches_any(blob, CURRENT_USER_NAME_HINTS):
+        if blob.endswith("get_me") or blob in {"me", "get_me"} or _matches_any(blob, CURRENT_USER_NAME_HINTS):
             found.append(tool)
             continue
         if "current" in blob and "user" in blob:
@@ -76,7 +83,9 @@ def possible_sender_tools(tools: list[MCPTool]) -> list[MCPTool]:
     for tool in tools:
         if tool.name in current:
             continue
-        if diagnostic_kind(tool) != "read":
+        if is_write_tool(tool):
+            continue
+        if not sender_lookup_is_exact(tool):
             continue
         blob = _name_blob(tool)
         if _matches_any(blob, SENDER_NAME_HINTS) and not _matches_any(blob, CHAT_NAME_HINTS + MESSAGE_NAME_HINTS):
@@ -97,7 +106,8 @@ def _print_candidates(title: str, tools: list[MCPTool]) -> None:
         return
     for tool in tools:
         fields = input_field_names(tool)
-        print(f"  * {tool.name}  fields={fields}")
+        required = required_field_names(tool)
+        print(_printable(f"  * {tool.name}  required={required}  properties={fields}"))
 
 
 async def main() -> None:
@@ -115,10 +125,17 @@ async def main() -> None:
     print()
     for tool in client.discovered_tools:
         kind = diagnostic_kind(tool)
+        auth_write = is_write_tool(tool)
         fields = input_field_names(tool)
-        print(f"{tool.name}\tkind={kind}\tfields={fields}")
+        required = required_field_names(tool)
+        print(
+            _printable(
+                f"{tool.name}\tkind={kind}\tauth_write={auth_write}\t"
+                f"required={required}\tproperties={fields}"
+            )
+        )
         if tool.description:
-            print(f"  {tool.description[:180]}")
+            print(_printable(f"  {tool.description[:180]}"))
 
     chats = possible_chat_tools(client.discovered_tools)
     messages = possible_message_tools(client.discovered_tools)

@@ -12,9 +12,10 @@ from app.integrations.typex_errors import (
     TypeXConnectionError,
     TypeXError,
     TypeXProtocolError,
+    TypeXToolCallError,
     TypeXToolUnavailableError,
 )
-from app.integrations.typex_policy import MCPTool, configured_read_tool_names
+from app.integrations.typex_policy import MCPTool, configured_read_tool_names, is_write_tool
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +126,12 @@ class TypeXMCPClient:
             logger.info("typex_mcp tools_call denied name=%s reason=not_configured", name)
             raise TypeXToolUnavailableError("TypeX read operation failed")
         await self.ensure_session()
-        if self.tool_by_name(name) is None:
+        tool = self.tool_by_name(name)
+        if tool is None:
             logger.info("typex_mcp tools_call denied name=%s reason=not_discovered", name)
+            raise TypeXToolUnavailableError("TypeX read operation failed")
+        if is_write_tool(tool):
+            logger.info("typex_mcp tools_call denied name=%s reason=write_tool", name)
             raise TypeXToolUnavailableError("TypeX read operation failed")
         logger.info("typex_mcp tools_call name=%s", name)
         result = await self._rpc(
@@ -210,6 +215,9 @@ def _parse_mcp_body(response: httpx.Response) -> dict[str, Any]:
 def _unwrap_tool_result(result: Any) -> Any:
     if result is None:
         return None
+    if isinstance(result, dict) and result.get("isError") is True:
+        logger.info("typex_mcp tools_call isError=true")
+        raise TypeXToolCallError("TypeX MCP unavailable")
     if isinstance(result, dict) and result.get("structuredContent") is not None:
         return result["structuredContent"]
     if isinstance(result, dict) and isinstance(result.get("content"), list):

@@ -124,3 +124,50 @@ def test_last_message_at_updated(db_session: Session) -> None:
     chat = db_session.scalar(select(Chat).where(Chat.external_id == "typex-affiliate-john"))
     assert chat is not None
     assert chat.last_message_at == _ts(11)
+
+
+def test_existing_chat_name_not_overwritten_by_message_payload(db_session: Session) -> None:
+    service = MessageIngestionService(db_session)
+    service.ingest_chat(
+        UnifiedChat(
+            platform=Platform.TYPEX,
+            external_id="c1",
+            name="Affiliate John",
+            chat_type=ChatType.DIRECT,
+        )
+    )
+    db_session.commit()
+    service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="m1",
+            chat_id="c1",
+            chat_name="c1",
+            sender_id="john-1",
+            sender_name="John",
+            text="We've started traffic today.",
+            timestamp=_ts(10),
+        )
+    )
+    db_session.commit()
+    chat = db_session.scalar(select(Chat).where(Chat.external_id == "c1"))
+    assert chat is not None
+    assert chat.name == "Affiliate John"
+    assert chat.chat_type == ChatType.DIRECT
+
+    service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="m1",
+            chat_id="c1",
+            chat_name="c1",
+            sender_id="john-1",
+            sender_name="John",
+            text="We've started traffic today.",
+            timestamp=_ts(10),
+        )
+    )
+    db_session.commit()
+    db_session.refresh(chat)
+    assert chat.name == "Affiliate John"
+    assert chat.chat_type == ChatType.DIRECT

@@ -59,6 +59,107 @@ TEST_HYBRID_TOOL = MCPTool(
     description="Get messages then delete them",
     input_schema={"properties": {"chat_id": {"type": "string"}}},
 )
+TEST_EDIT_TOOL = MCPTool(
+    name="edit_message",
+    description="Edit a message",
+    input_schema={"properties": {"message_id": {"type": "string"}}},
+)
+TEST_REPLY_TOOL = MCPTool(
+    name="create_thread_reply",
+    description="Reply in a thread",
+    input_schema={"properties": {"opaque_ref": {"type": "string"}}},
+)
+TEST_CREATE_TOOL = MCPTool(
+    name="create_group_chat",
+    description="Create a group",
+    input_schema={"properties": {"name": {"type": "string"}}},
+)
+TEST_UPLOAD_TOOL = MCPTool(
+    name="upload_chat_file",
+    description="Upload a file",
+    input_schema={"properties": {"opaque_ref": {"type": "string"}}},
+)
+
+# Fixtures based on live TypeX Desktop MCP tools/list schemas. No account data.
+TYPEX_LIST_FOLDER_FEEDS = MCPTool(
+    name="typex.list_folder_feeds",
+    description=(
+        "Read-only: list chats in a folder, with last message time. "
+        "Use all_chats=true with limit to list recent chats across folders."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "all_chats": {"type": "boolean"},
+            "limit": {"type": "integer"},
+            "folder_ref": {"type": "string"},
+            "folder_name": {"type": "string"},
+            "response_locale": {"type": "string"},
+        },
+        "required": [],
+    },
+)
+TYPEX_SEARCH_CHAT_RECORDS = MCPTool(
+    name="typex.search_chat_records",
+    description=(
+        "Retrieve messages. Preferred: contact_name or opaque_ref from search_contact."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "contact_name": {"type": "string"},
+            "search_group": {"type": "boolean"},
+            "search_contact": {"type": "boolean"},
+            "opaque_ref": {"type": "string"},
+            "query": {"type": "string"},
+            "from_time": {"type": "string"},
+            "to_time": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "required": [],
+    },
+)
+TYPEX_GET_ME = MCPTool(
+    name="typex.get_me",
+    description="Read-only current user identity. Does not return token or invite_code.",
+    input_schema={"type": "object", "properties": {}, "required": []},
+)
+TYPEX_SEARCH_CONTACT = MCPTool(
+    name="typex.search_contact",
+    description="Fuzzy search contacts and chats by name.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "search_contact": {"type": "boolean"},
+            "search_group": {"type": "boolean"},
+            "limit": {"type": "integer"},
+            "response_locale": {"type": "string"},
+        },
+        "required": ["name"],
+    },
+)
+TYPEX_SEND_MESSAGE = MCPTool(
+    name="typex.send_message",
+    description="Send a message",
+    input_schema={
+        "properties": {
+            "opaque_ref": {"type": "string"},
+            "text": {"type": "string"},
+        },
+        "required": ["opaque_ref", "text"],
+    },
+)
+TYPEX_ACCOUNT_WIDE_SEARCH = MCPTool(
+    name="typex.search_all_records",
+    description="Search messages across the account",
+    input_schema={
+        "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer"},
+        }
+    },
+)
 
 
 def rpc_result(rpc_id: int, result: object) -> dict:
@@ -113,6 +214,8 @@ def session_handler(
                 data = default_call_result
             else:
                 raise AssertionError(f"unexpected tools/call {name}")
+            if isinstance(data, dict) and data.get("isError") is True:
+                return httpx.Response(200, json=rpc_result(body["id"], data))
             return httpx.Response(200, json=rpc_result(body["id"], tool_payload(data)))
         raise AssertionError(method)
 

@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.enums import Platform
-from app.models import Contact, ContactIdentity, Message
-from app.schemas.unified import UnifiedMessage
+from app.enums import ChatType, Platform
+from app.models import Chat, Contact, ContactIdentity, Message
+from app.schemas.unified import UnifiedChat, UnifiedMessage
 from app.services.message_ingestion import MessageIngestionService
 
 
@@ -186,3 +186,56 @@ def test_outgoing_does_not_attach_existing_self_contact(db_session: Session) -> 
     assert outgoing.contact_id is None
     assert db_session.scalar(select(func.count()).select_from(Contact)) == 1
     assert db_session.scalar(select(func.count()).select_from(ContactIdentity)) == 1
+
+
+def test_message_ingestion_does_not_overwrite_existing_chat_name(db_session: Session) -> None:
+    service = MessageIngestionService(db_session)
+    chat, created = service.ingest_chat(
+        UnifiedChat(
+            platform=Platform.TYPEX,
+            external_id="c1",
+            name="Affiliate John",
+            chat_type=ChatType.DIRECT,
+        )
+    )
+    db_session.commit()
+    assert created is True
+
+    service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="m1",
+            chat_id="c1",
+            chat_name="c1",
+            sender_id="john-1",
+            sender_name="John",
+            text="We've started traffic today.",
+            timestamp=_ts(10),
+            is_outgoing=False,
+        )
+    )
+    db_session.commit()
+    db_session.refresh(chat)
+    assert chat.name == "Affiliate John"
+    assert chat.chat_type == ChatType.DIRECT
+
+    service.ingest_message(
+        UnifiedMessage(
+            platform=Platform.TYPEX,
+            external_id="m1",
+            chat_id="c1",
+            chat_name="c1",
+            sender_id="john-1",
+            sender_name="John",
+            text="We've started traffic today.",
+            timestamp=_ts(10),
+            is_outgoing=False,
+        )
+    )
+    db_session.commit()
+    db_session.refresh(chat)
+    assert chat.name == "Affiliate John"
+    assert chat.chat_type == ChatType.DIRECT
+    stored = db_session.scalar(select(Chat).where(Chat.external_id == "c1"))
+    assert stored is not None
+    assert stored.name == "Affiliate John"

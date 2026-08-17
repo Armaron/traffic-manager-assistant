@@ -6,26 +6,99 @@ from typing import Any
 from app.enums import ChatType, Platform
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
-CHAT_ID_KEYS = ("id", "chat_id", "conversation_id", "group_id", "gid", "target_id")
-MESSAGE_ID_KEYS = ("id", "message_id", "msg_id", "mid")
-SENDER_ID_KEYS = ("sender_id", "user_id", "from_id", "uid", "author_id", "fromUserId")
-NAME_KEYS = ("name", "title", "display_name", "displayName", "nickname", "chat_name")
+CHAT_ID_KEYS = (
+    "opaque_ref",
+    "feed_id",
+    "feed_ref",
+    "chat_ref",
+    "folder_feed_id",
+    "id",
+    "chat_id",
+    "conversation_id",
+    "group_id",
+    "gid",
+    "target_id",
+)
+MESSAGE_ID_KEYS = ("message_ref", "record_id", "id", "message_id", "msg_id", "mid")
+SENDER_ID_KEYS = (
+    "sender_id",
+    "user_id",
+    "from_id",
+    "uid",
+    "author_id",
+    "fromUserId",
+    "typex_id",
+    "userId",
+    "peer_id",
+)
+NAME_KEYS = ("name", "title", "display_name", "displayName", "nickname", "chat_name", "feed_name")
 TEXT_KEYS = ("text", "content", "body", "message")
-TIME_KEYS = ("timestamp", "time", "created_at", "createdAt", "send_time", "sendTime", "date")
-TYPE_KEYS = ("type", "chat_type", "chatType", "kind")
+TIME_KEYS = (
+    "timestamp",
+    "time",
+    "created_at",
+    "createdAt",
+    "send_time",
+    "sendTime",
+    "date",
+    "created_time",
+    "msg_time",
+    "last_message_send_at",
+)
+TYPE_KEYS = ("chat_type_label", "type", "chat_type", "chatType", "kind", "feed_type")
+CURRENT_USER_ID_KEYS = ("id", "typex_id", "user_id", "uid")
+LIST_KEYS = (
+    "chats",
+    "conversations",
+    "messages",
+    "items",
+    "results",
+    "data",
+    "users",
+    "contacts",
+    "feeds",
+    "records",
+    "folder_feeds",
+    "mentions",
+)
 
 
 def extract_list(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
-        for key in ("chats", "conversations", "messages", "items", "results", "data", "users", "contacts"):
+        for key in LIST_KEYS:
             value = payload.get(key)
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
-        if any(key in payload for key in CHAT_ID_KEYS + MESSAGE_ID_KEYS):
+        nested = payload.get("user") or payload.get("me") or payload.get("profile") or payload.get("account")
+        if isinstance(nested, dict):
+            return [nested]
+        if any(key in payload for key in CHAT_ID_KEYS + MESSAGE_ID_KEYS + SENDER_ID_KEYS):
             return [payload]
     return []
+
+
+def normalize_typex_feed(item: dict[str, Any]) -> dict[str, Any]:
+    """Copy TypeX feed/conversation handles onto generic chat id keys."""
+    out = dict(item)
+    feed_id = first_value(out, CHAT_ID_KEYS)
+    if feed_id is not None:
+        out.setdefault("id", feed_id)
+        out.setdefault("chat_id", feed_id)
+    return out
+
+
+def normalize_typex_record(item: dict[str, Any]) -> dict[str, Any]:
+    """Copy TypeX chat-record fields onto the generic message contract."""
+    out = dict(item)
+    message_id = first_value(out, MESSAGE_ID_KEYS)
+    if message_id is not None:
+        out["id"] = message_id
+    sender_id = first_value(out, SENDER_ID_KEYS)
+    if sender_id is not None:
+        out.setdefault("sender_id", sender_id)
+    return out
 
 
 def first_value(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
@@ -71,6 +144,8 @@ def parse_timestamp(value: Any) -> datetime | None:
 
 
 def map_chat_type(value: Any) -> ChatType:
+    if isinstance(value, int):
+        return ChatType.UNKNOWN
     token = str(value or "").lower()
     if token in {"direct", "private", "dm", "p2p", "user"}:
         return ChatType.DIRECT
@@ -178,6 +253,21 @@ def resolve_is_outgoing(
 
 def map_sender(item: dict[str, Any]) -> UnifiedSender | None:
     external_id = as_str_id(first_value(item, SENDER_ID_KEYS + ("id",)))
+    if not external_id:
+        return None
+    name = str(first_value(item, NAME_KEYS) or external_id)
+    return UnifiedSender(platform=Platform.TYPEX, external_id=external_id, name=name)
+
+
+def map_current_user(payload: Any) -> UnifiedSender | None:
+    """Map typex.get_me. Prefer stable id over uid when both are present."""
+    item: dict[str, Any] | None = None
+    if isinstance(payload, dict):
+        nested = payload.get("me") or payload.get("user") or payload.get("profile") or payload.get("account")
+        item = nested if isinstance(nested, dict) else payload
+    if item is None:
+        return None
+    external_id = as_str_id(first_value(item, CURRENT_USER_ID_KEYS))
     if not external_id:
         return None
     name = str(first_value(item, NAME_KEYS) or external_id)

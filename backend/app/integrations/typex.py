@@ -4,32 +4,36 @@ Real access uses TypeX Desktop MCP only, via configurable TYPEX_MCP_URL.
 The default http://127.0.0.1:52222/mcp/ is a fallback — verify it against
 the installed TypeX version before TYPEX_MODE=real.
 
-This adapter is READ-ONLY. It calls only exact configured tool names.
+This adapter is READ-ONLY. It calls only exact configured tool names that
+are discovered and not classified as write/mutation.
 Send/edit/delete/reaction/archive/mute/block tools are never wrapped.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.config import Settings, get_settings
 from app.enums import Platform
 from app.integrations.base import MessengerAdapter
+from app.integrations.typex_bindings import (
+    build_chats_arguments,
+    build_current_user_arguments,
+    build_messages_arguments,
+    build_sender_arguments,
+    is_safely_scoped_messages_tool,
+    sender_lookup_is_exact,
+)
 from app.integrations.typex_errors import TypeXConfigurationError, TypeXToolUnavailableError
 from app.integrations.typex_mapping import (
     extract_list,
     map_chat,
+    map_current_user,
     map_message,
     map_sender,
+    normalize_typex_feed,
+    normalize_typex_record,
 )
 from app.integrations.typex_mcp import TypeXMCPClient
-from app.integrations.typex_policy import (
-    MCPTool,
-    clean_tool_name,
-    limit_field,
-    message_chat_id_field,
-    sender_id_field,
-)
+from app.integrations.typex_policy import MCPTool, clean_tool_name, is_write_tool
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 
@@ -55,6 +59,7 @@ class TypeXAdapter(MessengerAdapter):
         self._chat_limit = chat_limit
         self._message_limit = message_limit
         self._current_user_id: str | None = None
+        self._chat_cache: dict[str, UnifiedChat] = {}
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
 
@@ -91,40 +96,62 @@ class TypeXAdapter(MessengerAdapter):
             raise TypeXConfigurationError("TypeX configuration required")
         await self._client.ensure_session()
         for name in configured_read_tool_names_from_adapter(self):
-            if self._client.tool_by_name(name) is None:
+            tool = self._require_discovered(name)
+            if is_write_tool(tool):
                 raise TypeXToolUnavailableError("TypeX read operation failed")
+        chats_tool = self._require_discovered(self._chats_tool)
         messages_tool = self._require_discovered(self._messages_tool)
-        if message_chat_id_field(messages_tool) is None:
+        if not is_safely_scoped_messages_tool(messages_tool):
             raise TypeXToolUnavailableError("TypeX read operation failed")
+        build_chats_arguments(chats_tool, self._chat_limit)
+        build_messages_arguments(messages_tool, "scope-check", self._message_limit)
+        if self._current_user_tool is not None:
+            build_current_user_arguments(self._require_discovered(self._current_user_tool))
+        if self._sender_tool is not None:
+            sender_tool = self._require_discovered(self._sender_tool)
+            if not sender_lookup_is_exact(sender_tool):
+                raise TypeXToolUnavailableError("TypeX read operation failed")
+            build_sender_arguments(sender_tool, "sender-check")
 
     async def get_chats(self) -> list[UnifiedChat]:
         tool = await self._require_configured_tool(self._chats_tool)
-        payload = await self._client.call_tool(tool.name, _limit_args(tool, self._chat_limit))
+        payload = await self._client.call_tool(tool.name, build_chats_arguments(tool, self._chat_limit))
         chats: list[UnifiedChat] = []
         for item in extract_list(payload):
-            mapped = map_chat(item)
+            mapped = map_chat(normalize_typex_feed(item))
             if mapped is not None:
                 chats.append(mapped)
             if len(chats) >= self._chat_limit:
                 break
+        self._chat_cache = {chat.external_id: chat for chat in chats}
         return chats
 
     async def get_messages(self, chat_id: str) -> list[UnifiedMessage]:
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
         tool = await self._require_configured_tool(self._messages_tool)
-        chat_field = message_chat_id_field(tool)
-        if chat_field is None:
+        if not is_safely_scoped_messages_tool(tool):
             raise TypeXToolUnavailableError("TypeX read operation failed")
         await self._load_current_user()
-        chat = UnifiedChat(platform=Platform.TYPEX, external_id=chat_id, name=chat_id)
-        payload = await self._client.call_tool(tool.name, _message_args(tool, chat_id, self._message_limit))
+        chat = self._chat_cache.get(chat_id) or UnifiedChat(
+            platform=Platform.TYPEX,
+            external_id=chat_id,
+            name=chat_id,
+        )
+        payload = await self._client.call_tool(
+            tool.name,
+            build_messages_arguments(tool, chat_id, self._message_limit),
+        )
         messages: list[UnifiedMessage] = []
         raw_items = extract_list(payload)
         self.last_messages_seen = len(raw_items)
         skipped = 0
         for item in raw_items:
-            mapped = map_message(item, chat=chat, current_user_id=self._current_user_id)
+            mapped = map_message(
+                normalize_typex_record(item),
+                chat=chat,
+                current_user_id=self._current_user_id,
+            )
             if mapped is None:
                 skipped += 1
                 continue
@@ -145,7 +172,7 @@ class TypeXAdapter(MessengerAdapter):
         if self._sender_tool is None:
             return None
         tool = await self._require_configured_tool(self._sender_tool)
-        arguments = _sender_args(tool, sender_id)
+        arguments = build_sender_arguments(tool, sender_id)
         payload = await self._client.call_tool(tool.name, arguments)
         items = extract_list(payload)
         if not items and isinstance(payload, dict):
@@ -160,13 +187,14 @@ class TypeXAdapter(MessengerAdapter):
         if self._current_user_id or self._current_user_tool is None:
             return
         tool = await self._require_configured_tool(self._current_user_tool)
-        payload = await self._client.call_tool(tool.name, {})
-        items = extract_list(payload)
-        if not items and isinstance(payload, dict):
-            items = [payload]
-        if not items:
-            return
-        mapped = map_sender(items[0])
+        payload = await self._client.call_tool(tool.name, build_current_user_arguments(tool))
+        mapped = map_current_user(payload)
+        if mapped is None:
+            items = extract_list(payload)
+            if not items and isinstance(payload, dict):
+                items = [payload]
+            if items:
+                mapped = map_sender(items[0])
         if mapped is not None:
             self._current_user_id = mapped.external_id
 
@@ -182,6 +210,8 @@ class TypeXAdapter(MessengerAdapter):
         tool = self._client.tool_by_name(name)
         if tool is None:
             raise TypeXToolUnavailableError("TypeX read operation failed")
+        if is_write_tool(tool):
+            raise TypeXToolUnavailableError("TypeX read operation failed")
         return tool
 
 
@@ -193,22 +223,3 @@ def configured_read_tool_names_from_adapter(adapter: TypeXAdapter) -> set[str]:
         adapter._sender_tool,
     }
     return {name for name in names if name}
-
-
-def _limit_args(tool: MCPTool, limit: int) -> dict[str, Any]:
-    field = limit_field(tool)
-    return {field: limit} if field else {}
-
-
-def _message_args(tool: MCPTool, chat_id: str, limit: int) -> dict[str, Any]:
-    chat_field = message_chat_id_field(tool)
-    if chat_field is None:
-        raise TypeXToolUnavailableError("TypeX read operation failed")
-    args: dict[str, Any] = {chat_field: chat_id}
-    args.update(_limit_args(tool, limit))
-    return args
-
-
-def _sender_args(tool: MCPTool, sender_id: str) -> dict[str, Any]:
-    field = sender_id_field(tool)
-    return {field: sender_id} if field else {}
