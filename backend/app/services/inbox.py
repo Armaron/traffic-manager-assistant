@@ -6,6 +6,8 @@ from app.models import AIAnalysis, Chat, Message
 from app.schemas.inbox import ChatSummary
 from app.time_utils import utc_now
 
+ACTIONABLE_DIRECTIONS = (MessageDirection.INCOMING, MessageDirection.UNKNOWN)
+
 
 def message_preview(text: str, limit: int = 72) -> str:
     collapsed = " ".join(text.split())
@@ -38,7 +40,7 @@ def list_chat_summaries(session: Session) -> list[ChatSummary]:
         .subquery()
     )
 
-    last_incoming = (
+    last_actionable = (
         select(
             Message.id.label("message_id"),
             Message.chat_id.label("chat_id"),
@@ -48,7 +50,7 @@ def list_chat_summaries(session: Session) -> list[ChatSummary]:
                 order_by=(Message.timestamp.desc(), Message.id.desc()),
             )
             .label("rn"),
-        ).where(Message.direction == MessageDirection.INCOMING)
+        ).where(Message.direction.in_(ACTIONABLE_DIRECTIONS))
     ).subquery()
 
     stmt = (
@@ -64,10 +66,10 @@ def list_chat_summaries(session: Session) -> list[ChatSummary]:
         .outerjoin(last_any, and_(last_any.c.chat_id == Chat.id, last_any.c.rn == 1))
         .outerjoin(message_counts, message_counts.c.chat_id == Chat.id)
         .outerjoin(
-            last_incoming,
-            and_(last_incoming.c.chat_id == Chat.id, last_incoming.c.rn == 1),
+            last_actionable,
+            and_(last_actionable.c.chat_id == Chat.id, last_actionable.c.rn == 1),
         )
-        .outerjoin(AIAnalysis, AIAnalysis.message_id == last_incoming.c.message_id)
+        .outerjoin(AIAnalysis, AIAnalysis.message_id == last_actionable.c.message_id)
         .order_by(Chat.last_message_at.desc().nulls_last(), Chat.id.desc())
     )
 
@@ -108,29 +110,21 @@ def list_messages(session: Session, chat_id: int) -> list[Message]:
     )
 
 
-def last_incoming_message(session: Session, chat_id: int) -> Message | None:
+def latest_actionable_message(session: Session, chat_id: int) -> Message | None:
+    """Newest INCOMING or UNKNOWN message. OUTGOING is never a target."""
     return session.scalars(
         select(Message)
-        .where(Message.chat_id == chat_id, Message.direction == MessageDirection.INCOMING)
-        .order_by(Message.timestamp.desc(), Message.id.desc())
-        .limit(1)
-    ).first()
-
-
-def last_unknown_message(session: Session, chat_id: int) -> Message | None:
-    return session.scalars(
-        select(Message)
-        .where(Message.chat_id == chat_id, Message.direction == MessageDirection.UNKNOWN)
+        .where(
+            Message.chat_id == chat_id,
+            Message.direction.in_(ACTIONABLE_DIRECTIONS),
+        )
         .order_by(Message.timestamp.desc(), Message.id.desc())
         .limit(1)
     ).first()
 
 
 def analysis_target_message(session: Session, chat_id: int) -> Message | None:
-    incoming = last_incoming_message(session, chat_id)
-    if incoming is not None:
-        return incoming
-    return last_unknown_message(session, chat_id)
+    return latest_actionable_message(session, chat_id)
 
 
 def update_chat_status(

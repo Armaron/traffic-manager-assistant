@@ -5,6 +5,7 @@ type AIAnalysisPanelProps = {
   loading: boolean;
   analyzing: boolean;
   error: string;
+  note?: string;
   directionConfirmationRequired?: boolean;
   onAnalyze: () => void;
   onReanalyze: () => void;
@@ -27,6 +28,7 @@ export function AIAnalysisPanel({
   loading,
   analyzing,
   error,
+  note = "",
   directionConfirmationRequired = false,
   onAnalyze,
   onReanalyze,
@@ -62,12 +64,13 @@ export function AIAnalysisPanel({
       {directionConfirmationRequired ? (
         <p className="ai-panel__note">Direction confirmation required before reply drafting.</p>
       ) : null}
+      {note ? <p className="ai-panel__note">{note}</p> : null}
 
       {loading ? <p className="ai-panel__note">Loading analysis…</p> : null}
       {analyzing && !loading ? <p className="ai-panel__note">Analyzing...</p> : null}
       {error ? <p className="ai-panel__error">{error}</p> : null}
 
-      {!loading && !analysis && !error ? (
+      {!loading && !analysis && !error && !note ? (
         <p className="ai-panel__note">No analysis yet. Run Analyze to generate a draft.</p>
       ) : null}
 

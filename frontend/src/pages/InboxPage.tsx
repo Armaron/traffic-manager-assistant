@@ -61,6 +61,7 @@ function panelErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "Could not analyze message";
   if (
     message === "No incoming messages" ||
+    message === "No analyzable messages" ||
     message === "AI provider unavailable" ||
     message === "OpenRouter authentication failed" ||
     message === "OpenRouter balance insufficient" ||
@@ -77,6 +78,16 @@ function panelErrorMessage(error: unknown): string {
   return message || "Analysis unavailable";
 }
 
+function latestActionableMessage(messages: ChatMessage[]): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index];
+    if (item.direction === "incoming" || item.direction === "unknown") {
+      return item;
+    }
+  }
+  return undefined;
+}
+
 export function InboxPage() {
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -87,6 +98,7 @@ export function InboxPage() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
+  const [directionUpdatedNote, setDirectionUpdatedNote] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [seeding, setSeeding] = useState(false);
@@ -214,6 +226,7 @@ export function InboxPage() {
     if (resolvedSelectedId === null) {
       setAnalysis(null);
       setAnalysisError("");
+      setDirectionUpdatedNote("");
       return;
     }
     let cancelled = false;
@@ -317,6 +330,14 @@ export function InboxPage() {
       const updated = await updateMessageDirection(messageId, direction);
       setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setError("");
+      setAnalysisError("");
+      if (resolvedSelectedId === null) {
+        return;
+      }
+      await loadChats(resolvedSelectedId);
+      const next = await fetchChatAnalysis(resolvedSelectedId);
+      setAnalysis(next);
+      setDirectionUpdatedNote(next == null ? "Direction updated. Analyze again." : "");
     } catch {
       setError("Could not update message direction.");
     }
@@ -328,6 +349,7 @@ export function InboxPage() {
     }
     setAnalyzing(true);
     setAnalysisError("");
+    setDirectionUpdatedNote("");
     try {
       const result = force
         ? await reanalyzeChat(resolvedSelectedId)
@@ -399,10 +421,8 @@ export function InboxPage() {
         loading={analysisLoading}
         analyzing={analyzing}
         error={analysisError}
-        directionConfirmationRequired={
-          [...messages].reverse().find((item) => item.direction === "incoming") == null &&
-          messages.some((item) => item.direction === "unknown")
-        }
+        note={directionUpdatedNote}
+        directionConfirmationRequired={latestActionableMessage(messages)?.direction === "unknown"}
         onAnalyze={() => {
           void handleAnalyze(false);
         }}

@@ -221,10 +221,16 @@ def test_manual_incoming_allows_normal_draft(db_session: Session) -> None:
     )
     db_session.add(message)
     db_session.commit()
+    service = AIAnalysisService(db_session, MockAIProvider())
+    first = asyncio.run(service.analyze_message(message.id))
+    db_session.commit()
+    assert first.draft_reply is None
+    assert first.needs_reply is False
     set_message_direction(db_session, message.id, MessageDirection.INCOMING)
     db_session.commit()
-    service = AIAnalysisService(db_session, MockAIProvider())
+    assert db_session.scalar(select(AIAnalysis).where(AIAnalysis.message_id == message.id)) is None
     analysis = asyncio.run(service.analyze_message(message.id))
     db_session.commit()
     assert analysis.needs_reply is True
     assert analysis.draft_reply is not None
+    assert db_session.scalar(select(func.count()).select_from(AIAnalysis)) == 1

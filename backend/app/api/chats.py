@@ -65,14 +65,14 @@ def _target_or_error(db: DbSession, chat_id: int, *, missing_status: int) -> Mes
         raise HTTPException(status_code=404, detail="Chat not found")
     target = inbox_service.analysis_target_message(db, chat_id)
     if target is None:
-        raise HTTPException(status_code=missing_status, detail="No incoming messages")
+        raise HTTPException(status_code=missing_status, detail="No analyzable messages")
     return target
 
 
 @router.get("/{chat_id}/analysis", response_model=AIAnalysisRead)
 def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _target_or_error(db, chat_id, missing_status=404)
-    analysis = db.scalar(select(AIAnalysis).where(AIAnalysis.message_id == incoming.id))
+    target = _target_or_error(db, chat_id, missing_status=404)
+    analysis = db.scalar(select(AIAnalysis).where(AIAnalysis.message_id == target.id))
     if analysis is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return AIAnalysisRead.model_validate(analysis)
@@ -80,9 +80,9 @@ def get_chat_analysis(chat_id: int, db: DbSession) -> AIAnalysisRead:
 
 @router.post("/{chat_id}/analyze", response_model=AIAnalysisRead)
 async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _target_or_error(db, chat_id, missing_status=400)
+    target = _target_or_error(db, chat_id, missing_status=400)
     try:
-        analysis = await _analysis_service(db).analyze_message(incoming.id)
+        analysis = await _analysis_service(db).analyze_message(target.id)
     except AIProviderError as exc:
         raise http_for_ai(exc) from None
     db.commit()
@@ -92,9 +92,9 @@ async def analyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
 
 @router.post("/{chat_id}/reanalyze", response_model=AIAnalysisRead)
 async def reanalyze_chat(chat_id: int, db: DbSession) -> AIAnalysisRead:
-    incoming = _target_or_error(db, chat_id, missing_status=400)
+    target = _target_or_error(db, chat_id, missing_status=400)
     try:
-        analysis = await _analysis_service(db).reanalyze_message(incoming.id)
+        analysis = await _analysis_service(db).reanalyze_message(target.id)
     except AIProviderError as exc:
         raise http_for_ai(exc) from None
     db.commit()

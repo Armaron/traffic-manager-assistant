@@ -71,10 +71,6 @@ export function seedMockData(): Promise<SeedResult> {
 export async function fetchChatAnalysis(chatId: number): Promise<AIAnalysis | null> {
   const response = await fetch(`/api/chats/${chatId}/analysis`);
   if (response.status === 404) {
-    const detail = await readDetail(response);
-    if (detail === "No incoming messages") {
-      throw new Error(detail);
-    }
     return null;
   }
   if (!response.ok) {

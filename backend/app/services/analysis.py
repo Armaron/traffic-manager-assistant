@@ -10,7 +10,7 @@ from app.models import AIAnalysis, Chat, Message
 from app.schemas.analysis import AIAnalysisResult
 from app.schemas.inbox import AnalyzeAllResult
 from app.services.analysis_context import build_analysis_context
-from app.services.inbox import last_incoming_message
+from app.services.inbox import analysis_target_message
 from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -121,13 +121,13 @@ async def analyze_all_chats(session: Session, provider: AIProvider) -> AnalyzeAl
     result = AnalyzeAllResult()
     chats = session.scalars(select(Chat)).all()
     for chat in chats:
-        incoming = last_incoming_message(session, chat.id)
-        if incoming is None:
+        target = analysis_target_message(session, chat.id)
+        if target is None:
             result.skipped += 1
             continue
-        if service.get_analysis(incoming.id) is not None:
+        if service.get_analysis(target.id) is not None:
             result.existing += 1
             continue
-        await service.analyze_message(incoming.id)
+        await service.analyze_message(target.id)
         result.analyzed += 1
     return result
