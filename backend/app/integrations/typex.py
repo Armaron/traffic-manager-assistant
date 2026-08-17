@@ -22,6 +22,11 @@ from app.integrations.typex_bindings import (
     is_safely_scoped_messages_tool,
     sender_lookup_is_exact,
 )
+from app.integrations.typex_direction import (
+    TypeXDirectionContext,
+    TypeXIdentity,
+    identity_from_get_me,
+)
 from app.integrations.typex_errors import TypeXConfigurationError, TypeXToolUnavailableError
 from app.integrations.typex_mapping import (
     extract_list,
@@ -36,7 +41,9 @@ from app.integrations.typex_mcp import TypeXMCPClient
 from app.integrations.typex_policy import MCPTool, clean_tool_name, is_write_tool
 from app.integrations.typex_resolver import (
     CONVERSATION_RESOLVER_TOOL,
+    ResolvedTypeXConversation,
     TypeXConversationResolver,
+    normalize_display_name,
 )
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
@@ -63,12 +70,16 @@ class TypeXAdapter(MessengerAdapter):
         self._chat_limit = chat_limit
         self._message_limit = message_limit
         self._current_user_id: str | None = None
+        self._current_user_identity = TypeXIdentity()
+        self._current_user_exact_name: str | None = None
+        self._current_user_loaded = False
         self._chat_cache: dict[str, UnifiedChat] = {}
+        self._conversation_by_id: dict[str, ResolvedTypeXConversation] = {}
         self._resolver: TypeXConversationResolver | None = None
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
         if self._chats_tool == "typex.list_folder_feeds":
-            self._client.allow_configured_tool(CONVERSATION_RESOLVER_TOOL)
+            self._client.allow_internal_read_tool(CONVERSATION_RESOLVER_TOOL)
             self._resolver = TypeXConversationResolver(self._client)
 
     @classmethod
@@ -142,9 +153,11 @@ class TypeXAdapter(MessengerAdapter):
     async def _map_listed_chat(self, item: dict) -> UnifiedChat | None:
         handle = None
         if self._resolver is not None:
-            handle = await self._resolver.resolve(item)
-            if handle is None:
+            resolved = await self._resolver.resolve(item)
+            if resolved is None:
                 return None
+            handle = resolved.opaque_ref
+            self._conversation_by_id[handle] = resolved
             item = {**item, "opaque_ref": handle}
         mapped = map_chat(normalize_typex_feed(item))
         if mapped is None:
@@ -173,11 +186,13 @@ class TypeXAdapter(MessengerAdapter):
         raw_items = extract_list(payload)
         self.last_messages_seen = len(raw_items)
         skipped = 0
+        direction_context = self._direction_context_for(chat)
         for item in raw_items:
             mapped = map_message(
                 normalize_typex_record(item),
                 chat=chat,
                 current_user_id=self._current_user_id,
+                direction_context=direction_context,
             )
             if mapped is None:
                 skipped += 1
@@ -211,10 +226,12 @@ class TypeXAdapter(MessengerAdapter):
         return None
 
     async def _load_current_user(self) -> None:
-        if self._current_user_id or self._current_user_tool is None:
+        if self._current_user_loaded or self._current_user_tool is None:
             return
+        self._current_user_loaded = True
         tool = await self._require_configured_tool(self._current_user_tool)
         payload = await self._client.call_tool(tool.name, build_current_user_arguments(tool))
+        self._current_user_identity = identity_from_get_me(payload)
         mapped = map_current_user(payload)
         if mapped is None:
             items = extract_list(payload)
@@ -224,6 +241,22 @@ class TypeXAdapter(MessengerAdapter):
                 mapped = map_sender(items[0])
         if mapped is not None:
             self._current_user_id = mapped.external_id
+        me = None
+        if isinstance(payload, dict):
+            nested = payload.get("me")
+            me = nested if isinstance(nested, dict) else None
+        if isinstance(me, dict):
+            self._current_user_exact_name = normalize_display_name(me.get("name"))
+
+    def _direction_context_for(self, chat: UnifiedChat) -> TypeXDirectionContext:
+        resolved = self._conversation_by_id.get(chat.external_id)
+        return TypeXDirectionContext(
+            chat_type=resolved.chat_type if resolved is not None else chat.chat_type,
+            current_user=self._current_user_identity,
+            counterpart=resolved.counterpart_identity if resolved is not None else None,
+            current_user_exact_name=self._current_user_exact_name,
+            counterpart_exact_name=resolved.counterpart_exact_name if resolved is not None else None,
+        )
 
     async def _require_configured_tool(self, name: str | None) -> MCPTool:
         if name is None:

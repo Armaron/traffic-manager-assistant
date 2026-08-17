@@ -1,17 +1,21 @@
 """Exact TypeX conversation handle resolution.
 
 list_folder_feeds items do not include opaque_ref. typex.search_contact can
-return opaque_ref for an exact display-name match. Fuzzy, ambiguous, and
-type-mismatched results are rejected. Display names are never used as IDs.
+return opaque_ref for an exact display-name match. Fuzzy, ambiguous,
+truncated, and type-mismatched results are rejected. Display names are never IDs.
 """
 
 from __future__ import annotations
 
 import logging
 import unicodedata
+from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.enums import ChatType
+from app.integrations.typex_direction import TypeXIdentity, identity_from_contact_candidate
 from app.integrations.typex_errors import TypeXToolUnavailableError
+from app.integrations.typex_mapping import map_chat_type
 from app.integrations.typex_mcp import TypeXMCPClient
 from app.integrations.typex_policy import is_write_tool, required_field_names
 
@@ -26,6 +30,17 @@ GROUP_CHAT_LABELS = frozenset({"group chat"})
 CONTACT_RET_TYPES = frozenset({"contact"})
 GROUP_RET_TYPES = frozenset({"feed"})
 RESOLVER_RESULT_LIMIT = 5
+TOTAL_COUNT_KEYS = ("match_count", "total", "total_count", "result_count")
+
+
+@dataclass(frozen=True)
+class ResolvedTypeXConversation:
+    opaque_ref: str
+    chat_type: ChatType
+    display_name: str | None = None
+    counterpart_identity: TypeXIdentity | None = None
+    counterpart_exact_name: str | None = None
+    resolver_mode: ResolverMode | None = None
 
 
 def normalize_display_name(value: Any) -> str | None:
@@ -97,13 +112,68 @@ def extract_candidates(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def select_exact_handle(feed: dict[str, Any], candidates: list[dict[str, Any]]) -> str | None:
-    """Return opaque_ref only for one exact name+type match. Otherwise None."""
+def candidate_result_is_complete(
+    payload: Any,
+    candidates: list[dict[str, Any]],
+    requested_limit: int,
+) -> bool:
+    count = len(candidates)
+    has_more = None
+    total = None
+    if isinstance(payload, dict):
+        if isinstance(payload.get("has_more"), bool):
+            has_more = payload["has_more"]
+        for key in TOTAL_COUNT_KEYS:
+            value = payload.get(key)
+            if isinstance(value, int):
+                total = value
+                break
+    if has_more is True:
+        return False
+    if total is not None and total > count:
+        return False
+    if total is not None:
+        return True
+    if requested_limit > 0 and count == requested_limit:
+        return False
+    return True
+
+
+def select_exact_handle(
+    feed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    payload: Any = None,
+    requested_limit: int = RESOLVER_RESULT_LIMIT,
+) -> str | None:
+    """Return opaque_ref only for one exact name+type match on a complete result."""
+    selected = select_exact_candidate(
+        feed,
+        candidates,
+        payload=payload,
+        requested_limit=requested_limit,
+    )
+    if selected is None:
+        return None
+    wanted = normalize_display_name(feed.get("name"))
+    return stable_handle_from_item(selected, wanted)
+
+
+def select_exact_candidate(
+    feed: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    payload: Any = None,
+    requested_limit: int = RESOLVER_RESULT_LIMIT,
+) -> dict[str, Any] | None:
+    if not candidate_result_is_complete(payload, candidates, requested_limit):
+        return None
     mode = resolver_mode_for_feed(feed)
     wanted = normalize_display_name(feed.get("name"))
     if mode is None or wanted is None:
         return None
     allowed_types = expected_ret_types(mode)
+    matches: list[dict[str, Any]] = []
     handles: list[str] = []
     for item in candidates:
         if candidate_display_name(item) != wanted:
@@ -116,9 +186,10 @@ def select_exact_handle(feed: dict[str, Any], candidates: list[dict[str, Any]]) 
             continue
         if handle not in handles:
             handles.append(handle)
+            matches.append(item)
     if len(handles) != 1:
         return None
-    return handles[0]
+    return matches[0]
 
 
 def build_resolver_arguments(feed: dict[str, Any]) -> dict[str, Any] | None:
@@ -134,6 +205,42 @@ def build_resolver_arguments(feed: dict[str, Any]) -> dict[str, Any] | None:
     return args
 
 
+def _chat_type_for_feed(feed: dict[str, Any], mode: ResolverMode | None) -> ChatType:
+    label = feed.get("chat_type_label")
+    mapped = map_chat_type(label if label is not None else feed.get("chat_type"))
+    if mapped != ChatType.UNKNOWN:
+        return mapped
+    if mode == "contact":
+        return ChatType.DIRECT
+    if mode == "group":
+        return ChatType.GROUP
+    return ChatType.UNKNOWN
+
+
+def resolved_from_feed_and_candidate(
+    feed: dict[str, Any],
+    candidate: dict[str, Any] | None,
+    handle: str,
+) -> ResolvedTypeXConversation:
+    mode = resolver_mode_for_feed(feed)
+    name = normalize_display_name(feed.get("name"))
+    counterpart = None
+    counterpart_name = None
+    if mode == "contact" and candidate is not None:
+        counterpart = identity_from_contact_candidate(candidate)
+        counterpart_name = candidate_display_name(candidate)
+        if counterpart is not None and counterpart.is_empty():
+            counterpart = None
+    return ResolvedTypeXConversation(
+        opaque_ref=handle,
+        chat_type=_chat_type_for_feed(feed, mode),
+        display_name=name,
+        counterpart_identity=counterpart,
+        counterpart_exact_name=counterpart_name,
+        resolver_mode=mode,
+    )
+
+
 class TypeXConversationResolver:
     """Session-scoped exact name resolver. Does not persist mappings."""
 
@@ -145,13 +252,13 @@ class TypeXConversationResolver:
     ) -> None:
         self._client = client
         self._tool_name = tool_name
-        self._cache: dict[tuple[str, ResolverMode], str] = {}
+        self._cache: dict[tuple[str, ResolverMode], ResolvedTypeXConversation] = {}
 
-    async def resolve(self, feed: dict[str, Any]) -> str | None:
+    async def resolve(self, feed: dict[str, Any]) -> ResolvedTypeXConversation | None:
         name = normalize_display_name(feed.get("name"))
         existing = stable_handle_from_item(feed, name)
         if existing is not None:
-            return existing
+            return resolved_from_feed_and_candidate(feed, None, existing)
         mode = resolver_mode_for_feed(feed)
         if name is None or mode is None:
             logger.info("typex_resolver resolved=false reason=untyped_or_unnamed")
@@ -176,10 +283,22 @@ class TypeXConversationResolver:
         except TypeXToolUnavailableError:
             logger.info("typex_resolver resolved=false reason=call_denied")
             return None
-        handle = select_exact_handle(feed, extract_candidates(payload))
+        candidates = extract_candidates(payload)
+        requested_limit = int(arguments.get("limit") or RESOLVER_RESULT_LIMIT)
+        candidate = select_exact_candidate(
+            feed,
+            candidates,
+            payload=payload,
+            requested_limit=requested_limit,
+        )
+        if candidate is None:
+            logger.info("typex_resolver resolved=false reason=no_unique_exact")
+            return None
+        handle = stable_handle_from_item(candidate, name)
         if handle is None:
             logger.info("typex_resolver resolved=false reason=no_unique_exact")
             return None
-        self._cache[cache_key] = handle
+        resolved = resolved_from_feed_and_candidate(feed, candidate, handle)
+        self._cache[cache_key] = resolved
         logger.info("typex_resolver resolved=true")
-        return handle
+        return resolved

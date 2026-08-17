@@ -263,3 +263,86 @@ def test_resolver_does_not_call_write_tools() -> None:
     with pytest.raises(TypeXToolUnavailableError):
         asyncio.run(adapter._client.call_tool(TYPEX_SEND_MESSAGE.name, {}))
     assert TYPEX_SEND_MESSAGE.name not in calls
+
+
+def test_one_exact_below_limit_accepted() -> None:
+    handle = select_exact_handle(
+        DIRECT_FEED,
+        [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+        payload={"candidates": [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}]},
+        requested_limit=5,
+    )
+    assert handle == "ref-1"
+
+
+def test_returned_count_equals_limit_without_total_is_truncated() -> None:
+    candidates = [
+        {"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"},
+        {"name": "Other A", "ret_type": "contact", "opaque_ref": "ref-a"},
+        {"name": "Other B", "ret_type": "contact", "opaque_ref": "ref-b"},
+        {"name": "Other C", "ret_type": "contact", "opaque_ref": "ref-c"},
+        {"name": "Other D", "ret_type": "contact", "opaque_ref": "ref-d"},
+    ]
+    handle = select_exact_handle(
+        DIRECT_FEED,
+        candidates,
+        payload={"candidates": candidates},
+        requested_limit=5,
+    )
+    assert handle is None
+
+
+def test_total_greater_than_returned_is_truncated() -> None:
+    handle = select_exact_handle(
+        DIRECT_FEED,
+        [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+        payload={"match_count": 9, "candidates": [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}]},
+        requested_limit=5,
+    )
+    assert handle is None
+
+
+def test_has_more_true_is_truncated() -> None:
+    handle = select_exact_handle(
+        DIRECT_FEED,
+        [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+        payload={
+            "has_more": True,
+            "candidates": [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+        },
+        requested_limit=5,
+    )
+    assert handle is None
+
+
+def test_total_one_and_one_exact_accepted_even_at_limit() -> None:
+    handle = select_exact_handle(
+        DIRECT_FEED,
+        [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+        payload={"match_count": 1, "candidates": [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}]},
+        requested_limit=1,
+    )
+    assert handle == "ref-1"
+
+
+def test_search_contact_is_internal_not_operator_allowlist() -> None:
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CONTACT, TYPEX_SEARCH_CHAT_RECORDS],
+        call_results={
+            TYPEX_LIST_FOLDER_FEEDS.name: [DIRECT_FEED],
+            TYPEX_SEARCH_CONTACT.name: {
+                "match_count": 1,
+                "candidates": [{"name": "Affiliate John", "ret_type": "contact", "opaque_ref": "ref-1"}],
+            },
+        },
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=None,
+    )
+    assert TYPEX_SEARCH_CONTACT.name not in adapter._client.allowed_tool_names
+    assert TYPEX_SEARCH_CONTACT.name in adapter._client.internal_read_tool_names
+    chats = asyncio.run(adapter.get_chats())
+    assert chats[0].external_id == "ref-1"

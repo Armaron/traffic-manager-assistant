@@ -44,9 +44,10 @@ class TypeXMCPClient:
         self._session_id: str | None = None
         self._rpc_id = 0
         self.discovered_tools: list[MCPTool] = []
-        self._configured_allowlist = {
+        self._operator_allowlist = {
             name.strip() for name in (allowed_tool_names or set()) if name and name.strip()
         }
+        self._internal_read_tools: set[str] = set()
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> TypeXMCPClient:
@@ -57,16 +58,26 @@ class TypeXMCPClient:
             allowed_tool_names=configured_read_tool_names(cfg),
         )
 
-    def allow_configured_tool(self, name: str) -> None:
-        """Add an exact tool name to the operator allowlist. Discovery still cannot grant this."""
+    def allow_internal_read_tool(self, name: str) -> None:
+        """Grant a discovered read tool for adapter internals. Not operator configuration.
+
+        Still requires exact name + discovery + not write/mutation at call time.
+        """
         cleaned = name.strip()
         if cleaned:
-            self._configured_allowlist.add(cleaned)
+            self._internal_read_tools.add(cleaned)
 
     @property
     def allowed_tool_names(self) -> set[str]:
-        """Exact configured allowlist. Discovery never adds names here."""
-        return set(self._configured_allowlist)
+        """Operator-configured allowlist. Discovery and internal grants never add names here."""
+        return set(self._operator_allowlist)
+
+    @property
+    def internal_read_tool_names(self) -> set[str]:
+        return set(self._internal_read_tools)
+
+    def _is_callable_name(self, name: str) -> bool:
+        return name in self._operator_allowlist or name in self._internal_read_tools
 
     async def health_check(self) -> bool:
         try:
@@ -117,7 +128,7 @@ class TypeXMCPClient:
         logger.info(
             "typex_mcp tools_list count=%s configured=%s success=true",
             len(tools),
-            len(self._configured_allowlist),
+            len(self._operator_allowlist),
         )
         return tools
 
@@ -128,8 +139,8 @@ class TypeXMCPClient:
         return None
 
     async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
-        if name not in self._configured_allowlist:
-            logger.info("typex_mcp tools_call denied name=%s reason=not_configured", name)
+        if not self._is_callable_name(name):
+            logger.info("typex_mcp tools_call denied name=%s reason=not_authorized", name)
             raise TypeXToolUnavailableError("TypeX read operation failed")
         await self.ensure_session()
         tool = self.tool_by_name(name)

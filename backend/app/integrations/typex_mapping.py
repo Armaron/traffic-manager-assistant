@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.enums import ChatType, Platform
+from app.integrations.typex_direction import resolve_typex_direction
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 CHAT_ID_KEYS = (
@@ -109,6 +110,23 @@ def normalize_typex_record(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def describe_shape(value: Any, *, depth: int = 0, max_depth: int = 6) -> Any:
+    """Recursive key/type view. Never includes string values."""
+    if depth > max_depth:
+        return "max_depth"
+    if isinstance(value, dict):
+        return {
+            str(key): describe_shape(child, depth=depth + 1, max_depth=max_depth)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        if not value:
+            return []
+        first = next((item for item in value if item is not None), None)
+        return [describe_shape(first, depth=depth + 1, max_depth=max_depth), f"len={len(value)}"]
+    return type(value).__name__
+
+
 def first_value(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
     for key in keys:
         if item.get(key) is not None:
@@ -206,6 +224,7 @@ def map_message(
     *,
     chat: UnifiedChat,
     current_user_id: str | None,
+    direction_context: Any | None = None,
 ) -> UnifiedMessage | None:
     item = normalize_typex_record(item)
     external_id = as_str_id(first_value(item, MESSAGE_ID_KEYS))
@@ -221,12 +240,15 @@ def map_message(
     sender_id = as_str_id(first_value(item, SENDER_ID_KEYS))
     sender_name_value = first_value(item, NAME_KEYS)
     if sender_name_value == chat.name:
-        sender_name = as_str_id(item.get("sender_name") or item.get("from_name"))
+        sender_name = as_str_id(item.get("sender_name") or item.get("from_name") or item.get("send_name"))
     else:
         sender_name = as_str_id(sender_name_value) if sender_name_value else as_str_id(
-            item.get("sender_name") or item.get("from_name")
+            item.get("sender_name") or item.get("from_name") or item.get("send_name")
         )
-    outgoing = resolve_is_outgoing(item, sender_id=sender_id, current_user_id=current_user_id)
+    if direction_context is not None:
+        outgoing = resolve_typex_direction(item, direction_context)
+    else:
+        outgoing = resolve_is_outgoing(item, sender_id=sender_id, current_user_id=current_user_id)
     if outgoing is None:
         return None
     return UnifiedMessage(
