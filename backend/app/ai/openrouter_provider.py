@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from app.ai.errors import (
     AIAuthenticationError,
     AIConfigurationError,
+    AIInsufficientBalanceError,
+    AIModelUnavailableError,
     AIProviderError,
     AIRateLimitError,
     AIResponseValidationError,
@@ -80,7 +82,7 @@ class OpenRouterProvider(AIProvider):
                     "schema": analysis_result_json_schema(),
                 },
             },
-            "provider": {"require_parameters": True},
+            "provider": {"require_parameters": True, "data_collection": "deny"},
         }
 
     async def analyze_message(self, context: AIAnalysisContext) -> AIAnalysisResult:
@@ -148,8 +150,12 @@ class OpenRouterProvider(AIProvider):
             return
         if status == 401:
             exc: AIProviderError = AIAuthenticationError("OpenRouter authentication failed")
+        elif status == 402:
+            exc = AIInsufficientBalanceError("OpenRouter balance insufficient")
+        elif status == 404:
+            exc = AIModelUnavailableError("OpenRouter model unavailable")
         elif status == 429:
-            exc = AIRateLimitError("AI provider unavailable")
+            exc = AIRateLimitError("AI rate limit reached")
         else:
             exc = AIUnavailableError("AI provider unavailable")
         exc.http_status = status  # type: ignore[attr-defined]

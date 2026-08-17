@@ -57,6 +57,9 @@ function panelErrorMessage(error: unknown): string {
     message === "No incoming messages" ||
     message === "AI provider unavailable" ||
     message === "OpenRouter authentication failed" ||
+    message === "OpenRouter balance insufficient" ||
+    message === "OpenRouter model unavailable" ||
+    message === "AI rate limit reached" ||
     message === "OpenRouter API key is not configured" ||
     message === "OpenRouter model is not configured"
   ) {

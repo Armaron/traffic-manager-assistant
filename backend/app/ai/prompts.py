@@ -58,6 +58,16 @@ def build_openrouter_messages(context: AIAnalysisContext) -> list[dict[str, str]
     ]
 
 
+def history_without_current(context: AIAnalysisContext) -> list[MessageRead]:
+    """Conversation context minus the exact current message row.
+
+    Messages before and after the current row stay, so an outgoing reply
+    after the analyzed incoming message remains visible.
+    """
+    current_id = context.current_message.id
+    return [item for item in context.recent_messages if item.id != current_id]
+
+
 def format_analysis_user_content(context: AIAnalysisContext) -> str:
     current = context.current_message
     parts = [
@@ -71,8 +81,8 @@ def format_analysis_user_content(context: AIAnalysisContext) -> str:
         "CURRENT MESSAGE",
         _format_message_block(current),
         "",
-        "RECENT HISTORY (oldest first)",
-        _format_history(context.recent_messages),
+        "RECENT HISTORY (oldest first, excludes the current message row)",
+        _format_history(history_without_current(context)),
         "",
         "CONTACT",
         _format_contact(context),
