@@ -34,6 +34,10 @@ from app.integrations.typex_mapping import (
 )
 from app.integrations.typex_mcp import TypeXMCPClient
 from app.integrations.typex_policy import MCPTool, clean_tool_name, is_write_tool
+from app.integrations.typex_resolver import (
+    CONVERSATION_RESOLVER_TOOL,
+    TypeXConversationResolver,
+)
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
 
 
@@ -60,8 +64,12 @@ class TypeXAdapter(MessengerAdapter):
         self._message_limit = message_limit
         self._current_user_id: str | None = None
         self._chat_cache: dict[str, UnifiedChat] = {}
+        self._resolver: TypeXConversationResolver | None = None
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
+        if self._chats_tool == "typex.list_folder_feeds":
+            self._client.allow_configured_tool(CONVERSATION_RESOLVER_TOOL)
+            self._resolver = TypeXConversationResolver(self._client)
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> TypeXAdapter:
@@ -112,19 +120,38 @@ class TypeXAdapter(MessengerAdapter):
             if not sender_lookup_is_exact(sender_tool):
                 raise TypeXToolUnavailableError("TypeX read operation failed")
             build_sender_arguments(sender_tool, "sender-check")
+        if self._resolver is not None:
+            resolver_tool = self._client.tool_by_name(CONVERSATION_RESOLVER_TOOL)
+            if resolver_tool is None or is_write_tool(resolver_tool):
+                raise TypeXToolUnavailableError("TypeX read operation failed")
 
     async def get_chats(self) -> list[UnifiedChat]:
         tool = await self._require_configured_tool(self._chats_tool)
         payload = await self._client.call_tool(tool.name, build_chats_arguments(tool, self._chat_limit))
         chats: list[UnifiedChat] = []
         for item in extract_list(payload):
-            mapped = map_chat(normalize_typex_feed(item))
-            if mapped is not None:
-                chats.append(mapped)
+            mapped = await self._map_listed_chat(item)
+            if mapped is None:
+                continue
+            chats.append(mapped)
             if len(chats) >= self._chat_limit:
                 break
         self._chat_cache = {chat.external_id: chat for chat in chats}
         return chats
+
+    async def _map_listed_chat(self, item: dict) -> UnifiedChat | None:
+        handle = None
+        if self._resolver is not None:
+            handle = await self._resolver.resolve(item)
+            if handle is None:
+                return None
+            item = {**item, "opaque_ref": handle}
+        mapped = map_chat(normalize_typex_feed(item))
+        if mapped is None:
+            return None
+        if mapped.external_id == mapped.name:
+            return None
+        return mapped
 
     async def get_messages(self, chat_id: str) -> list[UnifiedMessage]:
         self.last_messages_seen = 0

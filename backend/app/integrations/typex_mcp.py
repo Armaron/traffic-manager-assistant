@@ -57,6 +57,12 @@ class TypeXMCPClient:
             allowed_tool_names=configured_read_tool_names(cfg),
         )
 
+    def allow_configured_tool(self, name: str) -> None:
+        """Add an exact tool name to the operator allowlist. Discovery still cannot grant this."""
+        cleaned = name.strip()
+        if cleaned:
+            self._configured_allowlist.add(cleaned)
+
     @property
     def allowed_tool_names(self) -> set[str]:
         """Exact configured allowlist. Discovery never adds names here."""

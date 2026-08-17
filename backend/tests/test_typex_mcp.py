@@ -567,6 +567,39 @@ def test_typex_feed_without_stable_id_is_not_mapped() -> None:
     assert chat.chat_type == ChatType.DIRECT
 
 
+def test_live_style_chat_record_without_direction_is_skipped() -> None:
+    chat = map_chat({"opaque_ref": "ref-1", "name": "Affiliate John", "chat_type_label": "single chat"})
+    assert chat is not None
+    skipped = map_message(
+        {
+            "message_ref": "msg-1",
+            "message_type": "text",
+            "send_name": "John",
+            "send_at": "2026-08-17T10:00:00Z",
+            "content": "hello",
+        },
+        chat=chat,
+        current_user_id="acct-1",
+    )
+    assert skipped is None
+    kept = map_message(
+        {
+            "message_ref": "msg-2",
+            "message_type": "text",
+            "send_name": "John",
+            "send_at": "2026-08-17T10:00:00Z",
+            "content": "hello",
+            "is_outgoing": False,
+        },
+        chat=chat,
+        current_user_id="acct-1",
+    )
+    assert kept is not None
+    assert kept.external_id == "msg-2"
+    assert kept.sender_name == "John"
+    assert kept.is_outgoing is False
+
+
 def test_typex_chat_record_schema_mapping() -> None:
     chat = map_chat({"opaque_ref": "feed-opaque-1", "name": "Affiliate John", "type": "direct"})
     assert chat is not None
@@ -688,7 +721,7 @@ def test_unknown_required_argument_fails_closed() -> None:
 def test_account_wide_search_rejected_as_messages_role() -> None:
     calls: dict[str, list[dict]] = {}
     handler = session_handler(
-        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_ACCOUNT_WIDE_SEARCH],
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_ACCOUNT_WIDE_SEARCH, TYPEX_SEARCH_CONTACT],
         calls=calls,
         default_call_result=[],
     )

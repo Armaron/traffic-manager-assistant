@@ -44,6 +44,7 @@ TIME_KEYS = (
     "created_time",
     "msg_time",
     "last_message_send_at",
+    "send_at",
 )
 TYPE_KEYS = ("chat_type_label", "type", "chat_type", "chatType", "kind", "feed_type")
 CURRENT_USER_ID_KEYS = ("id", "typex_id", "user_id", "uid")
@@ -60,6 +61,7 @@ LIST_KEYS = (
     "records",
     "folder_feeds",
     "mentions",
+    "candidates",
 )
 
 
@@ -98,6 +100,12 @@ def normalize_typex_record(item: dict[str, Any]) -> dict[str, Any]:
     sender_id = first_value(out, SENDER_ID_KEYS)
     if sender_id is not None:
         out.setdefault("sender_id", sender_id)
+    send_name = out.get("send_name")
+    if isinstance(send_name, str) and send_name.strip():
+        out.setdefault("sender_name", send_name.strip())
+    send_at = out.get("send_at")
+    if send_at is not None:
+        out.setdefault("timestamp", send_at)
     return out
 
 
@@ -144,14 +152,19 @@ def parse_timestamp(value: Any) -> datetime | None:
 
 
 def map_chat_type(value: Any) -> ChatType:
+    if value == 1:
+        return ChatType.DIRECT
+    if value == 2:
+        return ChatType.GROUP
     if isinstance(value, int):
         return ChatType.UNKNOWN
-    token = str(value or "").lower()
-    if token in {"direct", "private", "dm", "p2p", "user"}:
+    token = str(value or "").strip()
+    lowered = token.lower()
+    if token in {"single chat"} or lowered in {"direct", "private", "dm", "p2p", "user", "single chat", "single"}:
         return ChatType.DIRECT
-    if token in {"group", "groups"}:
+    if token in {"group chat"} or lowered in {"group", "groups", "group chat"}:
         return ChatType.GROUP
-    if token in {"channel", "broadcast", "room"}:
+    if lowered in {"channel", "broadcast", "room"}:
         return ChatType.CHANNEL
     return ChatType.UNKNOWN
 
@@ -194,6 +207,7 @@ def map_message(
     chat: UnifiedChat,
     current_user_id: str | None,
 ) -> UnifiedMessage | None:
+    item = normalize_typex_record(item)
     external_id = as_str_id(first_value(item, MESSAGE_ID_KEYS))
     timestamp = parse_timestamp(first_value(item, TIME_KEYS))
     if not external_id or timestamp is None:
