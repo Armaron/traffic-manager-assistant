@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -139,6 +141,14 @@ def analysis_target_message(session: Session, chat_id: int) -> Message | None:
     return latest_actionable_message(session, chat_id)
 
 
+def later_than(message: Message):
+    """Same-chat messages that are chronologically after `message`. Ties break on id."""
+    return or_(
+        Message.timestamp > message.timestamp,
+        and_(Message.timestamp == message.timestamp, Message.id > message.id),
+    )
+
+
 def has_outgoing_after_message(session: Session, message: Message) -> bool:
     """Deterministic already-answered check. Ties on timestamp fall back to id order."""
     later = session.scalar(
@@ -147,13 +157,59 @@ def has_outgoing_after_message(session: Session, message: Message) -> bool:
         .where(
             Message.chat_id == message.chat_id,
             Message.direction == MessageDirection.OUTGOING,
-            or_(
-                Message.timestamp > message.timestamp,
-                and_(Message.timestamp == message.timestamp, Message.id > message.id),
-            ),
+            later_than(message),
         )
     )
     return bool(later)
+
+
+@dataclass(frozen=True)
+class AnalysisStaleness:
+    is_stale: bool
+    newer_messages_count: int
+    latest_message_id: int | None
+
+
+def analysis_staleness(session: Session, analysis: AIAnalysis) -> AnalysisStaleness:
+    """Stale iff any later message exists in the same chat. Ignores analysis created_at."""
+    message = analysis.message if analysis.message is not None else session.get(Message, analysis.message_id)
+    if message is None:
+        return AnalysisStaleness(is_stale=False, newer_messages_count=0, latest_message_id=None)
+    newer_count = int(
+        session.scalar(
+            select(func.count()).select_from(Message).where(
+                Message.chat_id == message.chat_id,
+                later_than(message),
+            )
+        )
+        or 0
+    )
+    latest_id = session.scalar(
+        select(Message.id)
+        .where(Message.chat_id == message.chat_id)
+        .order_by(Message.timestamp.desc(), Message.id.desc())
+        .limit(1)
+    )
+    return AnalysisStaleness(
+        is_stale=newer_count > 0,
+        newer_messages_count=newer_count,
+        latest_message_id=latest_id,
+    )
+
+
+def analysis_is_stale(session: Session, analysis: AIAnalysis) -> bool:
+    return analysis_staleness(session, analysis).is_stale
+
+
+def latest_chat_analysis(session: Session, chat_id: int) -> AIAnalysis | None:
+    """Analysis whose target message is latest in the chat. Kept even if newer messages exist."""
+    return session.scalars(
+        select(AIAnalysis)
+        .join(Message, Message.id == AIAnalysis.message_id)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.timestamp.desc(), Message.id.desc())
+        .limit(1)
+    ).first()
 
 
 def update_chat_status(

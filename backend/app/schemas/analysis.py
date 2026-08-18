@@ -78,3 +78,6 @@ class AIAnalysisRead(BaseModel):
     model: str | None
     created_at: datetime
     updated_at: datetime
+    is_stale: bool = False
+    newer_messages_count: int = 0
+    latest_message_id: int | None = None

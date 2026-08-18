@@ -1,4 +1,5 @@
 import type { AIAnalysis, ImportantEntities, MessageDirection, Priority } from "../types/inbox";
+import { formatMessageTime } from "../utils/format";
 
 type AIAnalysisPanelProps = {
   analysis: AIAnalysis | null;
@@ -7,8 +8,11 @@ type AIAnalysisPanelProps = {
   error: string;
   note?: string;
   directionConfirmationRequired?: boolean;
+  analyzedAt?: string | null;
   onAnalyze: () => void;
   onReanalyze: () => void;
+  onAnalyzeLatest?: () => void;
+  onShowTarget?: () => void;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
 };
 
@@ -38,12 +42,17 @@ export function AIAnalysisPanel({
   error,
   note = "",
   directionConfirmationRequired = false,
+  analyzedAt = null,
   onAnalyze,
   onReanalyze,
+  onAnalyzeLatest,
+  onShowTarget,
   onDirectionChange,
 }: AIAnalysisPanelProps) {
+  const stale = analysis?.is_stale === true;
+
   async function copyDraft() {
-    if (!analysis?.draft_reply) {
+    if (!analysis?.draft_reply || stale) {
       return;
     }
     await navigator.clipboard.writeText(analysis.draft_reply);
@@ -78,12 +87,45 @@ export function AIAnalysisPanel({
             {PRIORITY_LABELS[analysis.priority]}
           </span>
           <span
-            className={`reply-tag ${analysis.needs_reply ? "reply-tag--needed" : "reply-tag--none"}`}
+            className={`reply-tag ${analysis.needs_reply ? "reply-tag--needed" : "reply-tag--none"}${stale ? " is-stale" : ""}`}
           >
             {analysis.needs_reply ? "Нужен ответ" : "Ответ не требуется"}
+            {stale ? " · устарело" : ""}
           </span>
           {analysis.needs_igor ? <span className="reply-tag reply-tag--igor">Решает Игорь</span> : null}
         </div>
+      ) : null}
+
+      {analysis && analyzedAt ? (
+        <p className="ai-panel__meta">
+          Разбор сообщения: {formatMessageTime(analyzedAt)}
+          {stale ? ` · Новых сообщений после разбора: ${analysis.newer_messages_count}` : ""}
+        </p>
+      ) : null}
+
+      {stale ? (
+        <section className="ai-stale">
+          <h3>Переписка изменилась</h3>
+          <p>
+            После этого разбора появились новые сообщения. Рекомендация и черновик могут быть
+            устаревшими.
+          </p>
+          <div className="ai-stale__actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={onAnalyzeLatest ?? onReanalyze}
+              disabled={analyzing}
+            >
+              {analyzing ? "Analyzing..." : "Разобрать последние сообщения"}
+            </button>
+            {onShowTarget ? (
+              <button type="button" className="ghost-button" onClick={onShowTarget}>
+                Показать разобранное сообщение
+              </button>
+            ) : null}
+          </div>
+        </section>
       ) : null}
 
       {note ? <p className="ai-panel__note">{note}</p> : null}
@@ -98,7 +140,7 @@ export function AIAnalysisPanel({
       ) : null}
 
       {analysis ? (
-        <div className="ai-panel__sections">
+        <div className={`ai-panel__sections${stale ? " is-stale" : ""}`}>
           <section className="ai-card">
             <h3>Разбор переписки</h3>
             <p className="ai-card__text">{analysis.conversation_explanation_ru || analysis.summary}</p>
@@ -110,7 +152,10 @@ export function AIAnalysisPanel({
           </section>
 
           <section className="ai-card">
-            <h3>Что делать дальше</h3>
+            <h3>
+              Что делать дальше
+              {stale ? <span className="stale-label">Может быть устарело</span> : null}
+            </h3>
             <p className="ai-card__text">{analysis.next_action_ru || analysis.reason}</p>
           </section>
 
@@ -130,6 +175,9 @@ export function AIAnalysisPanel({
 
           <section className="ai-card">
             <h3>Ответ</h3>
+            {stale && analysis.draft_reply ? (
+              <p className="ai-warning">Черновик из предыдущего разбора</p>
+            ) : null}
             {analysis.draft_is_provisional ? (
               <p className="ai-warning">
                 Направление сообщения не подтверждено. Ответ сгенерирован как предварительный.
@@ -137,8 +185,13 @@ export function AIAnalysisPanel({
             ) : null}
             {analysis.draft_reply ? (
               <>
-                <pre className="draft-reply">{analysis.draft_reply}</pre>
-                <button type="button" className="primary-button" onClick={() => void copyDraft()}>
+                <pre className={`draft-reply${stale ? " is-stale" : ""}`}>{analysis.draft_reply}</pre>
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void copyDraft()}
+                  disabled={stale}
+                >
                   Скопировать ответ
                 </button>
               </>

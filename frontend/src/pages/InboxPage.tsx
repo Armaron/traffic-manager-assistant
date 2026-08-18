@@ -147,6 +147,7 @@ export function InboxPage() {
   const [integrationsResolved, setIntegrationsResolved] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [autoSyncToggling, setAutoSyncToggling] = useState(false);
+  const [focusMessageId, setFocusMessageId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const generationRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
@@ -202,6 +203,14 @@ export function InboxPage() {
     const items = await fetchChatMessages(chatId);
     if (selectedIdRef.current === chatId) {
       setMessages(items);
+    }
+    try {
+      const nextAnalysis = await fetchChatAnalysis(chatId);
+      if (selectedIdRef.current === chatId) {
+        setAnalysis(nextAnalysis);
+      }
+    } catch {
+      // Keep the current card. This read is DB-only and must never look like a reload.
     }
   }, []);
 
@@ -526,6 +535,7 @@ export function InboxPage() {
         chat={selectedChat}
         messages={messages}
         loading={messagesLoading}
+        focusMessageId={focusMessageId}
         onStatusChange={(status) => {
           void handleStatusChange(status);
         }}
@@ -539,6 +549,9 @@ export function InboxPage() {
         analyzing={analyzing}
         error={analysisError}
         note={directionUpdatedNote}
+        analyzedAt={
+          analysis ? (messages.find((item) => item.id === analysis.message_id)?.timestamp ?? null) : null
+        }
         directionConfirmationRequired={latestActionableMessage(messages)?.direction === "unknown"}
         onAnalyze={() => {
           void handleAnalyze(false);
@@ -546,6 +559,17 @@ export function InboxPage() {
         onReanalyze={() => {
           void handleAnalyze(true);
         }}
+        onAnalyzeLatest={() => {
+          void handleAnalyze(true);
+        }}
+        onShowTarget={
+          analysis
+            ? () => {
+                setFocusMessageId(analysis.message_id);
+                window.setTimeout(() => setFocusMessageId(null), 2500);
+              }
+            : undefined
+        }
         onDirectionChange={(messageId, direction) => {
           void handleDirectionChange(messageId, direction);
         }}

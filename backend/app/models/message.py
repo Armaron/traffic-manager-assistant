@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String, Text, UniqueConstraint, event
+from sqlalchemy import Index, JSON, Boolean, ForeignKey, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -14,6 +14,7 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("chat_id", "external_id", name="uq_message_chat_external_id"),
+        Index("ix_messages_chat_timestamp_id", "chat_id", "timestamp", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -27,6 +27,7 @@ function missingMediaLabel(placeholder: MediaPlaceholder): string {
 type MessageBubbleProps = {
   message: ChatMessage;
   grouped?: boolean;
+  highlighted?: boolean;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
 };
 
@@ -60,7 +61,12 @@ function gridModifier(count: number): string {
   return "many";
 }
 
-export function MessageBubble({ message, grouped = false, onDirectionChange }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  grouped = false,
+  highlighted = false,
+  onDirectionChange,
+}: MessageBubbleProps) {
   const [zoomed, setZoomed] = useState<MessageAttachment | null>(null);
   const side = messageSide(message);
   const unknown = side === "unknown";
@@ -73,7 +79,8 @@ export function MessageBubble({ message, grouped = false, onDirectionChange }: M
 
   return (
     <div
-      className={`message-row message-row--${side}${grouped ? " is-grouped" : ""}`}
+      data-message-id={message.id}
+      className={`message-row message-row--${side}${grouped ? " is-grouped" : ""}${highlighted ? " is-highlighted" : ""}`}
     >
       <article
         className={`message-bubble is-${side}${attachments.length > 0 ? " has-media" : ""}`}

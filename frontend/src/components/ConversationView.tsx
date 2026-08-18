@@ -27,6 +27,7 @@ type ConversationViewProps = {
   chat: ChatSummary | null;
   messages: ChatMessage[];
   loading: boolean;
+  focusMessageId?: number | null;
   onStatusChange: (status: ConversationStatus) => void;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
 };
@@ -35,6 +36,7 @@ export function ConversationView({
   chat,
   messages,
   loading,
+  focusMessageId = null,
   onStatusChange,
   onDirectionChange,
 }: ConversationViewProps) {
@@ -89,6 +91,16 @@ export function ConversationView({
     }
   }, [messages, scrollToBottom]);
 
+  useEffect(() => {
+    if (focusMessageId == null) {
+      return;
+    }
+    const node = scrollRef.current?.querySelector(`[data-message-id="${focusMessageId}"]`);
+    if (node instanceof HTMLElement) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [focusMessageId]);
+
   if (!chat) {
     return (
       <section className="conversation">
@@ -116,6 +128,7 @@ export function ConversationView({
                 key={message.id}
                 message={message}
                 grouped={isGrouped(messages[index - 1], message)}
+                highlighted={focusMessageId === message.id}
                 onDirectionChange={message.direction === "unknown" ? onDirectionChange : undefined}
               />
             ))}

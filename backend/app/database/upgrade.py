@@ -11,6 +11,7 @@ def apply_schema_upgrades(engine: Engine) -> None:
         return
     _upgrade_messages(engine)
     _upgrade_ai_analyses(engine)
+    _upgrade_message_indexes(engine)
 
 
 def _upgrade_ai_analyses(engine: Engine) -> None:
@@ -65,5 +66,21 @@ def _upgrade_messages(engine: Engine) -> None:
                 SET is_outgoing = CASE WHEN direction = 'outgoing' THEN 1 ELSE 0 END
                 WHERE direction IS NOT NULL AND direction != ''
                 """
+            )
+        )
+
+
+def _upgrade_message_indexes(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "messages" not in inspector.get_table_names():
+        return
+    names = {index["name"] for index in inspector.get_indexes("messages")}
+    if "ix_messages_chat_timestamp_id" in names:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_messages_chat_timestamp_id "
+                "ON messages (chat_id, timestamp, id)"
             )
         )

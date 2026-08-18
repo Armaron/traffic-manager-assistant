@@ -205,6 +205,9 @@ export type AIAnalysis = {
   model: string | null;
   created_at: string;
   updated_at: string;
+  is_stale: boolean;
+  newer_messages_count: number;
+  latest_message_id: number | null;
 };
 
 export type AnalyzeAllResult = {
