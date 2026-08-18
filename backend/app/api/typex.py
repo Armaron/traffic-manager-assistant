@@ -1,25 +1,21 @@
 from fastapi import APIRouter
 
-from app.api.deps import DbSession, http_for_typex
+from app.api.deps import DbSession, http_for_typex, http_sync_in_progress
 from app.config import get_settings
 from app.integrations.factory import get_typex_adapter
 from app.integrations.typex import TypeXAdapter
-from app.integrations.typex_errors import TypeXConfigurationError, TypeXError, TypeXSyncNotReadyError
+from app.integrations.typex_errors import TypeXError
 from app.integrations.typex_policy import missing_required_tool_bindings
 from app.integrations.typex_readiness import TypeXSyncReadiness, mock_typex_sync_readiness
 from app.schemas.inbox import TypeXHealth, TypeXSyncResult
-from app.services.typex_sync import sync_typex_messages
+from app.services.platform_sync import adapter_sync_readiness, run_typex_sync
+from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
 
 router = APIRouter(prefix="/integrations/typex", tags=["typex"])
 
 
 def _adapter_sync_readiness(adapter: object, *, mode: str) -> TypeXSyncReadiness:
-    readiness_fn = getattr(adapter, "sync_readiness", None)
-    if callable(readiness_fn):
-        return readiness_fn()
-    if mode == "mock":
-        return mock_typex_sync_readiness()
-    return TypeXSyncReadiness(ready=False, reason_code="configuration_required", sync_mode="limited")
+    return adapter_sync_readiness(adapter, mode=mode)
 
 
 @router.get("/health", response_model=TypeXHealth)
@@ -80,25 +76,16 @@ async def typex_health() -> TypeXHealth:
 
 @router.post("/sync", response_model=TypeXSyncResult)
 async def typex_sync(db: DbSession) -> TypeXSyncResult:
-    settings = get_settings()
+    # Manual sync shares the platform lock with auto sync but ignores its backoff.
+    runtime = get_sync_runtime()
     try:
-        adapter = get_typex_adapter()
-        if isinstance(adapter, TypeXAdapter) and not adapter.is_configured():
-            raise TypeXConfigurationError("TypeX configuration required")
-        readiness = _adapter_sync_readiness(adapter, mode=(settings.typex_mode or "").strip().lower())
-        if not readiness.ready:
-            raise TypeXSyncNotReadyError(
-                readiness.reason or "TypeX sync is not ready",
-                reason_code=readiness.reason_code,
-            )
-        result = await sync_typex_messages(
-            db,
-            adapter,
-            chat_limit=settings.typex_sync_chat_limit,
-            message_limit=settings.typex_sync_message_limit,
-        )
-        db.commit()
-        return result
+        async with runtime.track(SyncPlatform.TYPEX, manual=True) as run:
+            result = await run_typex_sync(db, adapter=get_typex_adapter(), settings=get_settings())
+            db.commit()
+            run.succeeded(result)
+            return result
+    except SyncInProgressError:
+        raise http_sync_in_progress() from None
     except TypeXError as exc:
         db.rollback()
         raise http_for_typex(exc) from None

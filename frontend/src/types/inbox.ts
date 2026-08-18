@@ -151,6 +151,33 @@ export type TypeXSyncResult = {
   contacts_created: number;
 };
 
+export type PlatformSyncStatusValue = "ok" | "syncing" | "error" | "not_ready" | "idle";
+
+export type PlatformSyncStatus = {
+  platform: string;
+  status: PlatformSyncStatusValue;
+  running: boolean;
+  ready: boolean | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_success_at: string | null;
+  last_error_at: string | null;
+  last_error_code: string | null;
+  consecutive_failures: number;
+  next_auto_attempt_at: string | null;
+  last_duration_ms: number | null;
+  last_result: Record<string, number> | null;
+};
+
+export type SyncStatus = {
+  auto_sync_enabled: boolean;
+  interval_seconds: number;
+  max_backoff_seconds: number;
+  inbox_generation: number;
+  typex: PlatformSyncStatus;
+  telegram: PlatformSyncStatus;
+};
+
 export type ImportantEntities = {
   geo: string[];
   traffic_source: string[];

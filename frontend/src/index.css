@@ -274,9 +274,24 @@ select {
 }
 
 .conversation__messages {
+  position: relative;
   flex: 1;
   overflow: auto;
   padding: 20px 24px 28px;
+}
+
+.new-messages-pill {
+  position: sticky;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .conversation__thread {
@@ -697,6 +712,115 @@ select {
 .ghost-button:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.sync-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 16px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.sync-status__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sync-status__title {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.toggle-button {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toggle-button.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggle-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.sync-status__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-status__name {
+  min-width: 58px;
+  color: var(--muted);
+}
+
+.sync-status__badge {
+  font-weight: 500;
+}
+
+.sync-status__detail {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-status__hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.sync-dot--ok {
+  background: #16a34a;
+}
+
+.sync-dot--syncing {
+  background: var(--accent);
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+.sync-dot--error {
+  background: #dc2626;
+}
+
+.sync-dot--warn {
+  background: #d97706;
+}
+
+.sync-dot--idle {
+  background: #94a3b8;
+}
+
+@keyframes sync-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .typex-sync {

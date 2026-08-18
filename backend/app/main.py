@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 from app.config import get_settings
 from app.database.session import init_db, sqlite_file_path
+from app.services.auto_sync import start_auto_sync, stop_auto_sync
+from app.services.sync_runtime import get_sync_runtime, reset_sync_runtime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,7 +32,13 @@ async def lifespan(_app: FastAPI):
         settings.ai_provider,
         db_path.name if db_path else "memory",
     )
-    yield
+    reset_sync_runtime()
+    if get_sync_runtime().auto_sync_enabled:
+        await start_auto_sync()
+    try:
+        yield
+    finally:
+        await stop_auto_sync()
 
 
 app = FastAPI(

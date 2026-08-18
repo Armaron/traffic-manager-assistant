@@ -1,18 +1,17 @@
 from fastapi import APIRouter
 
-from app.api.deps import DbSession, http_for_telegram
+from app.api.deps import DbSession, http_for_telegram, http_sync_in_progress
 from app.config import get_settings
 from app.integrations.factory import get_telegram_adapter
 from app.integrations.telegram import TelegramAdapter
 from app.integrations.telegram_client import telegram_missing_configuration
 from app.integrations.telegram_errors import (
     TelegramAuthorizationError,
-    TelegramConfigurationError,
-    TelegramConnectionError,
     TelegramError,
 )
 from app.schemas.inbox import TelegramHealth, TelegramSyncResult
-from app.services.telegram_sync import sync_telegram_messages
+from app.services.platform_sync import run_telegram_sync
+from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
 
 router = APIRouter(prefix="/integrations/telegram", tags=["telegram"])
 
@@ -76,26 +75,20 @@ async def telegram_health() -> TelegramHealth:
 
 @router.post("/sync", response_model=TelegramSyncResult)
 async def telegram_sync(db: DbSession) -> TelegramSyncResult:
-    settings = get_settings()
-    mode = (settings.telegram_mode or "").strip().lower()
+    # Manual sync shares the platform lock with auto sync but ignores its backoff.
+    runtime = get_sync_runtime()
     try:
-        if mode == "real":
-            missing = telegram_missing_configuration(settings)
-            if missing:
-                raise TelegramConfigurationError("Telegram configuration required")
-        adapter = get_telegram_adapter()
-        if mode == "real" and isinstance(adapter, TelegramAdapter):
-            await adapter.ensure_ready_for_sync()
-        elif not await adapter.health_check():
-            raise TelegramConnectionError("Telegram is not connected")
-        result = await sync_telegram_messages(
-            db,
-            adapter,
-            chat_limit=settings.telegram_sync_chat_limit,
-            message_limit=settings.telegram_sync_message_limit,
-        )
-        db.commit()
-        return result
+        async with runtime.track(SyncPlatform.TELEGRAM, manual=True) as run:
+            result = await run_telegram_sync(
+                db,
+                adapter=get_telegram_adapter(),
+                settings=get_settings(),
+            )
+            db.commit()
+            run.succeeded(result)
+            return result
+    except SyncInProgressError:
+        raise http_sync_in_progress() from None
     except TelegramAuthorizationError:
         db.rollback()
         raise http_for_telegram(TelegramAuthorizationError("Telegram authorization required")) from None

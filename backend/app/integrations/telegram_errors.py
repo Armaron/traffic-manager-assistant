@@ -15,7 +15,17 @@ class TelegramConnectionError(TelegramError):
 
 
 class TelegramRateLimitError(TelegramError):
-    """Telegram FloodWait or rate limit. Never includes wait internals."""
+    """Telegram FloodWait or rate limit. Never includes wait internals in its message."""
+
+    def __init__(
+        self,
+        message: str = "Telegram rate limit reached",
+        *,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        # Internal only: lets auto sync wait out a flood instead of retrying blindly.
+        self.retry_after_seconds = retry_after_seconds
 
 
 class TelegramReadError(TelegramError):

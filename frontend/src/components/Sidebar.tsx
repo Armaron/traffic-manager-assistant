@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { InboxFilter } from "../types/inbox";
 import type { ChatSummary } from "../types/inbox";
 import { ChatList } from "./ChatList";
@@ -5,6 +6,7 @@ import { FilterBar } from "./FilterBar";
 
 type SidebarProps = {
   chats: ChatSummary[];
+  syncStatusPanel?: ReactNode;
   selectedId: number | null;
   filter: InboxFilter;
   search: string;
@@ -79,6 +81,7 @@ function telegramStatusLabel(
 
 export function Sidebar({
   chats,
+  syncStatusPanel,
   selectedId,
   filter,
   search,
@@ -118,6 +121,7 @@ export function Sidebar({
         onChange={(event) => onSearchChange(event.target.value)}
       />
       <FilterBar value={filter} onChange={onFilterChange} />
+      {syncStatusPanel}
       {onSyncTypeX || onSyncTelegram ? (
         <div className="typex-sync">
           {onSyncTypeX ? (

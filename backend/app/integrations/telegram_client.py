@@ -225,10 +225,12 @@ class TelethonReadClient:
                 await asyncio.sleep(seconds)
                 try:
                     return await factory()
-                except FloodWaitError:
-                    raise TelegramRateLimitError("Telegram rate limit reached") from None
+                except FloodWaitError as retry_exc:
+                    raise TelegramRateLimitError(
+                        retry_after_seconds=int(getattr(retry_exc, "seconds", 0) or 0) or None
+                    ) from None
             logger.info("telegram floodwait_rejected op=%s", op)
-            raise TelegramRateLimitError("Telegram rate limit reached") from None
+            raise TelegramRateLimitError(retry_after_seconds=seconds or None) from None
         except RPCError as exc:
             name = type(exc).__name__.lower()
             if "auth" in name or "session" in name:

@@ -25,3 +25,10 @@ def http_for_typex(exc: TypeXError) -> HTTPException:
 
 def http_for_telegram(exc: TelegramError) -> HTTPException:
     return HTTPException(status_code=public_telegram_status(exc), detail=public_telegram_message(exc))
+
+
+def http_sync_in_progress() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "sync_in_progress", "message": "Sync is already running."},
+    )

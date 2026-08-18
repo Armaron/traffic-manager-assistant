@@ -1,18 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AIAnalysisPanel } from "../components/AIAnalysisPanel";
 import { ConversationView } from "../components/ConversationView";
 import { HealthStatus } from "../components/HealthStatus";
 import { Sidebar } from "../components/Sidebar";
+import { SyncStatusBar } from "../components/SyncStatusBar";
 import {
+  ApiError,
+  SYNC_IN_PROGRESS,
   analyzeChat,
   fetchChatAnalysis,
   fetchChatMessages,
   fetchChats,
   fetchHealth,
+  fetchSyncStatus,
   fetchTelegramHealth,
   fetchTypeXHealth,
   reanalyzeChat,
   seedMockData,
+  setAutoSync,
   syncTelegram,
   syncTypeX,
   updateChatStatus,
@@ -25,8 +30,12 @@ import type {
   ConversationStatus,
   InboxFilter,
   MessageDirection,
+  SyncStatus,
   TypeXSyncResult,
 } from "../types/inbox";
+
+// Local backend polling only. It reports scheduler state and never triggers a messenger sync.
+const STATUS_POLL_MS = 4000;
 
 type ConnectionState = "checking" | "connected" | "disconnected";
 
@@ -89,6 +98,13 @@ function latestActionableMessage(messages: ChatMessage[]): ChatMessage | undefin
   return undefined;
 }
 
+function syncErrorNote(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.code === SYNC_IN_PROGRESS) {
+    return "Sync already in progress";
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 function typexSyncNote(result: TypeXSyncResult): string {
   const parts = [`${result.messages_created} new TypeX messages`];
   if (result.files_saved) {
@@ -129,7 +145,11 @@ export function InboxPage() {
   const [telegramSyncReady, setTelegramSyncReady] = useState(false);
   const [appEnv, setAppEnv] = useState("");
   const [integrationsResolved, setIntegrationsResolved] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [autoSyncToggling, setAutoSyncToggling] = useState(false);
   const [error, setError] = useState("");
+  const generationRef = useRef(0);
+  const selectedIdRef = useRef<number | null>(null);
 
   // Real messenger data must never be mixed with demo seeding.
   const devSeedAvailable =
@@ -169,6 +189,58 @@ export function InboxPage() {
       setSelectedId(resolvedSelectedId);
     }
   }, [resolvedSelectedId, selectedId]);
+
+  selectedIdRef.current = resolvedSelectedId;
+
+  // Background refresh: keeps the selected chat, the AI panel and rendered images untouched.
+  const refreshInboxQuietly = useCallback(async () => {
+    await loadChats();
+    const chatId = selectedIdRef.current;
+    if (chatId === null) {
+      return;
+    }
+    const items = await fetchChatMessages(chatId);
+    if (selectedIdRef.current === chatId) {
+      setMessages(items);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (connection !== "connected") {
+      return;
+    }
+    let cancelled = false;
+    let polling = false;
+
+    async function poll() {
+      if (polling) {
+        return;
+      }
+      polling = true;
+      try {
+        const status = await fetchSyncStatus();
+        if (cancelled) {
+          return;
+        }
+        setSyncStatus(status);
+        if (status.inbox_generation !== generationRef.current) {
+          generationRef.current = status.inbox_generation;
+          await refreshInboxQuietly();
+        }
+      } catch {
+        // The backend may be restarting. Keep the current Inbox and retry on the next tick.
+      } finally {
+        polling = false;
+      }
+    }
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [connection, refreshInboxQuietly]);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,8 +365,7 @@ export function InboxPage() {
       setSyncNote(typexSyncNote(result));
       setError("");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "TypeX MCP unavailable";
-      setSyncNote(message);
+      setSyncNote(syncErrorNote(err, "TypeX MCP unavailable"));
     } finally {
       setTypexSyncing(false);
     }
@@ -314,10 +385,21 @@ export function InboxPage() {
       setSyncNote(`${result.messages_created} new Telegram messages`);
       setError("");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Telegram unavailable";
-      setSyncNote(message);
+      setSyncNote(syncErrorNote(err, "Telegram unavailable"));
     } finally {
       setTelegramSyncing(false);
+    }
+  }
+
+  async function handleToggleAutoSync(enabled: boolean) {
+    setAutoSyncToggling(true);
+    try {
+      setSyncStatus(await setAutoSync(enabled));
+      setSyncNote(enabled ? "Auto sync on" : "Auto sync off");
+    } catch {
+      setSyncNote("Could not change auto sync");
+    } finally {
+      setAutoSyncToggling(false);
     }
   }
 
@@ -395,9 +477,21 @@ export function InboxPage() {
     );
   }
 
+  const typexBusy = typexSyncing || syncStatus?.typex.running === true;
+  const telegramBusy = telegramSyncing || syncStatus?.telegram.running === true;
+
   return (
     <div className="inbox-shell">
       <Sidebar
+        syncStatusPanel={
+          <SyncStatusBar
+            status={syncStatus}
+            toggling={autoSyncToggling}
+            onToggleAutoSync={(enabled) => {
+              void handleToggleAutoSync(enabled);
+            }}
+          />
+        }
         chats={visibleChats}
         selectedId={resolvedSelectedId}
         filter={filter}
@@ -416,7 +510,7 @@ export function InboxPage() {
         onSyncTypeX={() => {
           void handleSyncTypeX();
         }}
-        typexSyncing={typexSyncing}
+        typexSyncing={typexBusy}
         telegramMode={telegramMode}
         telegramConfigured={telegramConfigured}
         telegramAuthorized={telegramAuthorized}
@@ -425,7 +519,7 @@ export function InboxPage() {
         onSyncTelegram={() => {
           void handleSyncTelegram();
         }}
-        telegramSyncing={telegramSyncing}
+        telegramSyncing={telegramBusy}
         syncNote={syncNote}
       />
       <ConversationView

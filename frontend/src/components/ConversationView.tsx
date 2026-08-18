@@ -1,9 +1,12 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatSummary, ConversationStatus, MessageDirection } from "../types/inbox";
 import { platformLabel } from "../utils/format";
 import { MessageBubble } from "./MessageBubble";
 import { StatusSelector } from "./StatusSelector";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+// Reading history should never be interrupted by a background sync.
+const NEAR_BOTTOM_PX = 120;
 
 function isGrouped(previous: ChatMessage | undefined, message: ChatMessage): boolean {
   if (!previous) {
@@ -35,6 +38,57 @@ export function ConversationView({
   onStatusChange,
   onDirectionChange,
 }: ConversationViewProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const pinnedRef = useRef(true);
+  const previousCount = useRef(messages.length);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
+  const chatId = chat?.id ?? null;
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    const node = scrollRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTo({ top: node.scrollHeight, behavior });
+    pinnedRef.current = true;
+    setHasNewBelow(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) {
+      return;
+    }
+    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight <= NEAR_BOTTOM_PX;
+    pinnedRef.current = nearBottom;
+    if (nearBottom) {
+      setHasNewBelow(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    previousCount.current = 0;
+    pinnedRef.current = true;
+    setHasNewBelow(false);
+  }, [chatId]);
+
+  useEffect(() => {
+    if (messages.length === previousCount.current) {
+      return;
+    }
+    const grew = messages.length > previousCount.current;
+    const firstRender = previousCount.current === 0;
+    previousCount.current = messages.length;
+    if (!grew) {
+      return;
+    }
+    if (firstRender || pinnedRef.current) {
+      scrollToBottom(firstRender ? "auto" : "smooth");
+    } else {
+      setHasNewBelow(true);
+    }
+  }, [messages, scrollToBottom]);
+
   if (!chat) {
     return (
       <section className="conversation">
@@ -52,8 +106,8 @@ export function ConversationView({
         </div>
         <StatusSelector value={chat.status} onChange={onStatusChange} />
       </header>
-      <div className="conversation__messages">
-        {loading ? (
+      <div className="conversation__messages" ref={scrollRef} onScroll={handleScroll}>
+        {loading && messages.length === 0 ? (
           <p className="empty-note">Loading messages…</p>
         ) : (
           <div className="conversation__thread">
@@ -67,6 +121,15 @@ export function ConversationView({
             ))}
           </div>
         )}
+        {hasNewBelow ? (
+          <button
+            type="button"
+            className="new-messages-pill"
+            onClick={() => scrollToBottom("smooth")}
+          >
+            New messages
+          </button>
+        ) : null}
       </div>
     </section>
   );

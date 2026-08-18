@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     telegram_session_path: str | None = "data/telegram.session"
     telegram_sync_chat_limit: int = 20
     telegram_sync_message_limit: int = 50
+    auto_sync_enabled: bool = False
+    auto_sync_interval_seconds: int = 30
+    auto_sync_max_backoff_seconds: int = 300
+    auto_sync_platform_timeout_seconds: int = 60
+    auto_sync_startup_delay_seconds: float = 4.0
     ai_provider: str = "mock"
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
