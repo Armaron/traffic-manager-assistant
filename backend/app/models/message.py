@@ -40,6 +40,7 @@ class Message(Base):
         default=DirectionSource.NATIVE,
     )
     is_outgoing: Mapped[bool] = mapped_column(Boolean, default=False)  # legacy: True only if direction=outgoing
+    thread_external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 

@@ -82,6 +82,7 @@ export type ChatMessage = {
   direction: MessageDirection;
   direction_source: DirectionSource;
   is_outgoing: boolean;
+  thread_external_id?: string | null;
   created_at: string;
   attachments?: MessageAttachment[];
   media_placeholder?: MediaPlaceholder | null;
@@ -108,6 +109,33 @@ export type TypeXHealth = {
   available_tools_count: number;
   allowed_read_tools_count: number;
   missing_required_tools: string[];
+};
+
+export type SlackHealth = {
+  mode: string;
+  configured: boolean;
+  authenticated: boolean;
+  socket_configured: boolean;
+  socket_connected: boolean;
+  sync_ready: boolean;
+};
+
+export type SlackSyncResult = {
+  chats_seen: number;
+  chats_created: number;
+  messages_seen: number;
+  messages_created: number;
+  messages_existing: number;
+  messages_skipped: number;
+  contacts_created: number;
+  threads_seen?: number;
+  files_seen?: number;
+  files_downloaded?: number;
+  files_existing?: number;
+  files_skipped?: number;
+  files_failed?: number;
+  media_downloaded?: number;
+  messages_updated?: number;
 };
 
 export type TelegramHealth = {
@@ -167,6 +195,8 @@ export type PlatformSyncStatus = {
   next_auto_attempt_at: string | null;
   last_duration_ms: number | null;
   last_result: Record<string, number> | null;
+  socket_connected?: boolean;
+  last_event_at?: string | null;
 };
 
 export type SyncStatus = {
@@ -176,6 +206,7 @@ export type SyncStatus = {
   inbox_generation: number;
   typex: PlatformSyncStatus;
   telegram: PlatformSyncStatus;
+  slack: PlatformSyncStatus;
 };
 
 export type ImportantEntities = {

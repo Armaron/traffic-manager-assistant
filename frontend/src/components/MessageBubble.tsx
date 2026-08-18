@@ -29,6 +29,7 @@ type MessageBubbleProps = {
   grouped?: boolean;
   highlighted?: boolean;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
+  onShowThreadRoot?: () => void;
 };
 
 function messageSide(message: ChatMessage): "incoming" | "outgoing" | "unknown" {
@@ -66,6 +67,7 @@ export function MessageBubble({
   grouped = false,
   highlighted = false,
   onDirectionChange,
+  onShowThreadRoot,
 }: MessageBubbleProps) {
   const [zoomed, setZoomed] = useState<MessageAttachment | null>(null);
   const side = messageSide(message);
@@ -90,6 +92,16 @@ export function MessageBubble({
           <time dateTime={message.timestamp}>{formatMessageTime(message.timestamp)}</time>
         </div>
         {body ? <p>{body}</p> : null}
+        {message.thread_external_id ? (
+          <p className="message-bubble__thread">
+            <span>↳ Thread reply</span>
+            {onShowThreadRoot ? (
+              <button type="button" className="ghost-button" onClick={onShowThreadRoot}>
+                View thread root
+              </button>
+            ) : null}
+          </p>
+        ) : null}
         {placeholder && attachments.length === 0 ? (
           <p className="message-bubble__placeholder">
             <span className="message-bubble__badge">{missingMediaLabel(placeholder)}</span>

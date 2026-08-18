@@ -18,6 +18,9 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.resolve().as_posix()}"
 os.environ["AI_PROVIDER"] = "mock"
 os.environ["TYPEX_MODE"] = "mock"
 os.environ["TELEGRAM_MODE"] = "mock"
+os.environ["SLACK_MODE"] = "mock"
+os.environ["SLACK_USER_TOKEN"] = ""
+os.environ["SLACK_APP_TOKEN"] = ""
 os.environ["TYPEX_SELF_DISPLAY_NAME"] = ""
 
 import pytest

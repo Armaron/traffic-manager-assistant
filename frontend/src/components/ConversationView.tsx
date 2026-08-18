@@ -130,6 +130,19 @@ export function ConversationView({
                 grouped={isGrouped(messages[index - 1], message)}
                 highlighted={focusMessageId === message.id}
                 onDirectionChange={message.direction === "unknown" ? onDirectionChange : undefined}
+                onShowThreadRoot={
+                  message.thread_external_id
+                    ? () => {
+                        const root = messages.find((item) => item.external_id === message.thread_external_id);
+                        if (root) {
+                          const node = scrollRef.current?.querySelector(`[data-message-id="${root.id}"]`);
+                          if (node instanceof HTMLElement) {
+                            node.scrollIntoView({ behavior: "smooth", block: "center" });
+                          }
+                        }
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>

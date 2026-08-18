@@ -19,6 +19,8 @@ class PlatformSyncStatus(BaseModel):
     next_auto_attempt_at: datetime | None = None
     last_duration_ms: int | None = None
     last_result: dict[str, int] | None = None
+    socket_connected: bool = False
+    last_event_at: datetime | None = None
 
     @classmethod
     def from_state(cls, state: PlatformSyncState) -> "PlatformSyncStatus":
@@ -36,6 +38,8 @@ class PlatformSyncStatus(BaseModel):
             next_auto_attempt_at=state.next_auto_attempt_at,
             last_duration_ms=state.last_duration_ms,
             last_result=state.last_result,
+            socket_connected=state.socket_connected,
+            last_event_at=state.last_event_at,
         )
 
 
@@ -46,6 +50,7 @@ class SyncStatusResponse(BaseModel):
     inbox_generation: int
     typex: PlatformSyncStatus
     telegram: PlatformSyncStatus
+    slack: PlatformSyncStatus
 
     @classmethod
     def from_runtime(cls, runtime: SyncRuntime) -> "SyncStatusResponse":
@@ -58,6 +63,7 @@ class SyncStatusResponse(BaseModel):
             inbox_generation=runtime.inbox_generation,
             typex=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.TYPEX)),
             telegram=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.TELEGRAM)),
+            slack=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.SLACK)),
         )
 
 

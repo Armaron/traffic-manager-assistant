@@ -20,7 +20,13 @@ const ERROR_LABELS: Record<string, string> = {
   telegram_configuration: "needs configuration",
   telegram_connection: "not connected",
   telegram_rate_limit: "rate limited",
-  telegram_read: "read failed",
+  slack_configuration: "needs configuration",
+  slack_authentication: "needs authentication",
+  slack_permission: "needs permission",
+  slack_rate_limit: "rate limited",
+  slack_connection: "not connected",
+  slack_socket: "socket unavailable",
+  slack_api: "read failed",
   integration_unavailable: "unavailable",
   unexpected: "failed",
 };
@@ -52,6 +58,9 @@ function detailFor(platform: PlatformSyncStatus): string {
       : "";
     return `${reason}${retry}`;
   }
+  if (platform.socket_connected) {
+    return platform.last_success_at ? `Live events · synced ${formatSyncAge(platform.last_success_at)}` : "Live events";
+  }
   return `Synced ${formatSyncAge(platform.last_success_at)}`;
 }
 
@@ -79,19 +88,24 @@ export function SyncStatusBar({ status, toggling = false, onToggleAutoSync }: Sy
   return (
     <section className="sync-status" aria-label="Automatic sync status">
       <div className="sync-status__head">
-        <span className="sync-status__title">Auto sync: {enabled ? "ON" : "OFF"}</span>
+        <span className="sync-status__title">Auto sync</span>
         <button
           type="button"
-          className={`toggle-button${enabled ? " is-on" : ""}`}
+          className={`switch${enabled ? " is-on" : ""}`}
           onClick={() => onToggleAutoSync(!enabled)}
           disabled={toggling}
           aria-pressed={enabled}
+          aria-label={enabled ? "Turn auto sync off" : "Turn auto sync on"}
         >
-          {enabled ? "Turn off" : "Turn on"}
+          <span className="switch__track" aria-hidden="true">
+            <span className="switch__knob" />
+          </span>
+          <span className="switch__label">{enabled ? "On" : "Off"}</span>
         </button>
       </div>
       <PlatformRow label="TypeX" platform={status.typex} autoEnabled={enabled} />
       <PlatformRow label="Telegram" platform={status.telegram} autoEnabled={enabled} />
+      <PlatformRow label="Slack" platform={status.slack} autoEnabled={enabled} />
       {enabled ? (
         <p className="sync-status__hint">Every {status.interval_seconds}s · read-only, no AI</p>
       ) : (

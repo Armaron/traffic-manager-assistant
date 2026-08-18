@@ -68,6 +68,8 @@ def _upgrade_messages(engine: Engine) -> None:
                 """
             )
         )
+        if "thread_external_id" not in columns:
+            connection.execute(text("ALTER TABLE messages ADD COLUMN thread_external_id VARCHAR(255)"))
 
 
 def _upgrade_message_indexes(engine: Engine) -> None:

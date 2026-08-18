@@ -63,6 +63,7 @@ class MessageRead(BaseModel):
     direction: MessageDirection | None = None
     direction_source: DirectionSource = DirectionSource.NATIVE
     is_outgoing: bool
+    thread_external_id: str | None = None
     created_at: datetime
     raw_data: dict[str, object] | None = Field(default=None)
     attachments: list[AttachmentRead] = Field(default_factory=list)

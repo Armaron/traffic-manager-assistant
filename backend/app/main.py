@@ -8,6 +8,11 @@ from app.api import api_router
 from app.config import get_settings
 from app.database.session import init_db, sqlite_file_path
 from app.services.auto_sync import start_auto_sync, stop_auto_sync
+from app.services.slack_events import (
+    maybe_startup_slack_reconciliation,
+    start_slack_events,
+    stop_slack_events,
+)
 from app.services.sync_runtime import get_sync_runtime, reset_sync_runtime
 
 logging.basicConfig(
@@ -24,20 +29,24 @@ async def lifespan(_app: FastAPI):
     init_db()
     db_path = sqlite_file_path(settings.database_url)
     logger.info(
-        "Starting %s v%s (typex_mode=%s, telegram_mode=%s, ai_provider=%s, db=%s)",
+        "Starting %s v%s (typex_mode=%s, telegram_mode=%s, slack_mode=%s, ai_provider=%s, db=%s)",
         settings.app_name,
         settings.app_version,
         settings.typex_mode,
         settings.telegram_mode,
+        settings.slack_mode,
         settings.ai_provider,
         db_path.name if db_path else "memory",
     )
     reset_sync_runtime()
+    await start_slack_events()
     if get_sync_runtime().auto_sync_enabled:
         await start_auto_sync()
+        await maybe_startup_slack_reconciliation()
     try:
         yield
     finally:
+        await stop_slack_events()
         await stop_auto_sync()
 
 

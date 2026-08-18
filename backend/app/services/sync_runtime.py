@@ -23,6 +23,17 @@ from app.integrations.telegram_errors import (
     TelegramRateLimitError,
     TelegramReadError,
 )
+from app.integrations.slack_errors import (
+    SlackAppApprovalError,
+    SlackAuthenticationError,
+    SlackConfigurationError,
+    SlackConnectionError,
+    SlackError,
+    SlackPermissionError,
+    SlackRateLimitError,
+    SlackReadError,
+    SlackSocketError,
+)
 from app.integrations.typex_errors import (
     TypeXConfigurationError,
     TypeXConnectionError,
@@ -34,7 +45,14 @@ from app.integrations.typex_errors import (
 from app.time_utils import utc_now
 
 # Counters that mean the Inbox has something new to show.
-INBOX_CHANGE_FIELDS = ("messages_created", "chats_created", "files_saved", "media_downloaded")
+INBOX_CHANGE_FIELDS = (
+    "messages_created",
+    "chats_created",
+    "files_saved",
+    "media_downloaded",
+    "files_downloaded",
+    "messages_updated",
+)
 
 ERROR_CODES: dict[type[BaseException], str] = {
     TypeXConfigurationError: "typex_configuration",
@@ -47,12 +65,21 @@ ERROR_CODES: dict[type[BaseException], str] = {
     TelegramConnectionError: "telegram_connection",
     TelegramRateLimitError: "telegram_rate_limit",
     TelegramReadError: "telegram_read",
+    SlackConfigurationError: "slack_configuration",
+    SlackAppApprovalError: "slack_configuration",
+    SlackAuthenticationError: "slack_authentication",
+    SlackPermissionError: "slack_permission",
+    SlackRateLimitError: "slack_rate_limit",
+    SlackConnectionError: "slack_connection",
+    SlackReadError: "slack_api",
+    SlackSocketError: "slack_socket",
 }
 
 
 class SyncPlatform(str, Enum):
     TYPEX = "typex"
     TELEGRAM = "telegram"
+    SLACK = "slack"
 
 
 class SyncInProgressError(RuntimeError):
@@ -69,7 +96,7 @@ def error_code_for(exc: BaseException) -> str:
     for error_type, code in ERROR_CODES.items():
         if isinstance(exc, error_type):
             return code
-    if isinstance(exc, (TypeXError, TelegramError)):
+    if isinstance(exc, (TypeXError, TelegramError, SlackError)):
         return "integration_unavailable"
     return "unexpected"
 
@@ -105,6 +132,8 @@ class PlatformSyncState:
     next_auto_attempt_at: datetime | None = None
     last_duration_ms: int | None = None
     last_result: dict[str, int] | None = None
+    socket_connected: bool = False
+    last_event_at: datetime | None = None
 
     def status(self) -> str:
         if self.running:
@@ -116,7 +145,7 @@ class PlatformSyncState:
             or (self.last_error_at is not None and self.last_error_at >= self.last_success_at)
         ):
             return "error"
-        if self.last_success_at is not None:
+        if self.last_success_at is not None or self.socket_connected:
             return "ok"
         return "idle"
 
@@ -165,6 +194,16 @@ class SyncRuntime:
 
     def set_auto_sync_enabled(self, enabled: bool) -> None:
         self.auto_sync_enabled = enabled
+
+    def note_slack_event(self, result: object) -> None:
+        state = self.state(SyncPlatform.SLACK)
+        state.last_event_at = utc_now()
+        state.ready = True
+        counters = safe_counters(result)
+        if counters:
+            state.last_result = counters
+        if inbox_changed(result):
+            self.inbox_generation += 1
 
     def auto_due(self, platform: SyncPlatform, now: datetime | None = None) -> bool:
         if not self.auto_sync_enabled or self.is_running(platform):

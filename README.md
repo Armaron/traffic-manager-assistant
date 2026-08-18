@@ -170,6 +170,12 @@ python -m app.integrations.telegram_auth
 
 Keep `TELEGRAM_MODE=mock` for local development without Telegram credentials.
 
+## Slack (user token, Socket Mode, read-only)
+
+Slack reads conversations visible to the authorized user. New messages arrive through **Socket Mode**. A limited Web API reconciliation restores recent history on startup/manual sync. Files are copied locally and served by this backend. **AI is never triggered automatically.** This app cannot send Slack messages.
+
+Setup: [docs/slack_setup.md](docs/slack_setup.md). Keep `SLACK_MODE=mock` until tokens are in local `.env` (`SLACK_USER_TOKEN`, `SLACK_APP_TOKEN`). Never commit tokens.
+
 ## Next step
 
-Slack real adapter is not wired yet. TypeX Limited Sync is implemented but the first live DB import still needs explicit approval (2 chats / 5 messages, OpenRouter off).
+Knowledge Base (Phase 9) is not started. Slack is the third read-only inbox source alongside TypeX and Telegram.

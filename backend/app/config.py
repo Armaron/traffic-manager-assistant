@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     telegram_session_path: str | None = "data/telegram.session"
     telegram_sync_chat_limit: int = 20
     telegram_sync_message_limit: int = 50
+    slack_mode: str = "mock"
+    slack_user_token: str | None = None
+    slack_app_token: str | None = None
+    slack_sync_chat_limit: int = 10
+    slack_sync_message_limit: int = 20
+    slack_download_files: bool = True
     auto_sync_enabled: bool = False
     auto_sync_interval_seconds: int = 30
     auto_sync_max_backoff_seconds: int = 300
@@ -73,6 +79,8 @@ class Settings(BaseSettings):
         "typex_self_display_name",
         "typex_files_list_tool",
         "typex_file_save_tool",
+        "slack_user_token",
+        "slack_app_token",
         mode="before",
     )
     @classmethod

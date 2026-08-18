@@ -11,6 +11,8 @@ import type {
   SyncStatus,
   TelegramHealth,
   TelegramSyncResult,
+  SlackHealth,
+  SlackSyncResult,
   TypeXHealth,
   TypeXSyncResult,
 } from "../types/inbox";
@@ -134,6 +136,14 @@ export function fetchTelegramHealth(): Promise<TelegramHealth> {
 
 export function syncTelegram(): Promise<TelegramSyncResult> {
   return request<TelegramSyncResult>("/api/integrations/telegram/sync", { method: "POST" });
+}
+
+export function fetchSlackHealth(): Promise<SlackHealth> {
+  return request<SlackHealth>("/api/integrations/slack/health");
+}
+
+export function syncSlack(): Promise<SlackSyncResult> {
+  return request<SlackSyncResult>("/api/integrations/slack/sync", { method: "POST" });
 }
 
 export function fetchSyncStatus(): Promise<SyncStatus> {

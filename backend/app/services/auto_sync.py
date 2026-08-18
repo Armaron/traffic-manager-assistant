@@ -36,6 +36,7 @@ PlatformRunner = Callable[[Session], Awaitable[object]]
 ReadinessCheck = Callable[[], tuple[bool, str | None]]
 
 CYCLE_ORDER = (SyncPlatform.TYPEX, SyncPlatform.TELEGRAM)
+# Slack real-time ingest is Socket Mode, not this 30-second history scan.
 
 
 class AutoSyncScheduler:

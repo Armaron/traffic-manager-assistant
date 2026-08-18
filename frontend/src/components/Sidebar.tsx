@@ -3,6 +3,7 @@ import type { InboxFilter } from "../types/inbox";
 import type { ChatSummary } from "../types/inbox";
 import { ChatList } from "./ChatList";
 import { FilterBar } from "./FilterBar";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 type SidebarProps = {
   chats: ChatSummary[];
@@ -30,6 +31,14 @@ type SidebarProps = {
   telegramSyncReady?: boolean;
   onSyncTelegram?: () => void;
   telegramSyncing?: boolean;
+  slackMode?: string;
+  slackConfigured?: boolean;
+  slackAuthenticated?: boolean;
+  slackSocketConfigured?: boolean;
+  slackSocketConnected?: boolean;
+  slackSyncReady?: boolean;
+  onSyncSlack?: () => void;
+  slackSyncing?: boolean;
   syncNote?: string;
 };
 
@@ -56,6 +65,31 @@ function typexStatusLabel(
     return "TypeX: connected · Limited sync";
   }
   return "TypeX: connected";
+}
+
+function slackStatusLabel(
+  mode: string,
+  configured: boolean,
+  authenticated: boolean,
+  socketConfigured: boolean,
+  socketConnected: boolean,
+): string {
+  if (mode !== "real") {
+    return "Slack: not configured";
+  }
+  if (!configured) {
+    return "Slack: setup required";
+  }
+  if (!authenticated) {
+    return "Slack: app approval required";
+  }
+  if (!socketConfigured) {
+    return "Slack: connected · socket setup required";
+  }
+  if (socketConnected) {
+    return "Slack: connected · live events";
+  }
+  return "Slack: connected";
 }
 
 function telegramStatusLabel(
@@ -105,6 +139,14 @@ export function Sidebar({
   telegramSyncReady = false,
   onSyncTelegram,
   telegramSyncing = false,
+  slackMode = "mock",
+  slackConfigured = false,
+  slackAuthenticated = false,
+  slackSocketConfigured = false,
+  slackSocketConnected = false,
+  slackSyncReady = false,
+  onSyncSlack,
+  slackSyncing = false,
   syncNote = "",
 }: SidebarProps) {
   return (
@@ -122,7 +164,7 @@ export function Sidebar({
       />
       <FilterBar value={filter} onChange={onFilterChange} />
       {syncStatusPanel}
-      {onSyncTypeX || onSyncTelegram ? (
+      {onSyncTypeX || onSyncTelegram || onSyncSlack ? (
         <div className="typex-sync">
           {onSyncTypeX ? (
             <>
@@ -173,6 +215,33 @@ export function Sidebar({
               <p className="typex-sync__note">{telegramStatusLabel(telegramMode, telegramConfigured, telegramAuthorized, telegramConnected)}</p>
             </>
           ) : null}
+          {onSyncSlack ? (
+            <>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={onSyncSlack}
+                disabled={
+                  slackMode !== "real" ||
+                  !slackConfigured ||
+                  !slackAuthenticated ||
+                  !slackSyncReady ||
+                  slackSyncing
+                }
+              >
+                {slackSyncing ? "Syncing..." : "Sync Slack"}
+              </button>
+              <p className="typex-sync__note">
+                {slackStatusLabel(
+                  slackMode,
+                  slackConfigured,
+                  slackAuthenticated,
+                  slackSocketConfigured,
+                  slackSocketConnected,
+                )}
+              </p>
+            </>
+          ) : null}
           {syncNote ? <p className="typex-sync__note">{syncNote}</p> : null}
         </div>
       ) : null}
@@ -188,6 +257,7 @@ export function Sidebar({
       ) : (
         <ChatList chats={chats} selectedId={selectedId} onSelect={onSelect} />
       )}
+      <ThemeSwitcher />
     </aside>
   );
 }

@@ -42,6 +42,7 @@ class UnifiedMessage(BaseModel):
     is_outgoing: bool = False  # legacy: True only when direction=outgoing
     attach_contact: bool = True
     raw_data: dict[str, object] | None = Field(default=None)
+    thread_external_id: str | None = None
     attachments: list[UnifiedAttachment] = Field(default_factory=list)
 
     @model_validator(mode="after")

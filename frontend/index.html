@@ -4,6 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Traffic Manager Assistant</title>
+    <script>
+      (function () {
+        var key = "traffic-manager-theme";
+        var choice = "dark";
+        try {
+          var stored = localStorage.getItem(key);
+          if (stored === "light" || stored === "system" || stored === "dark") {
+            choice = stored;
+          }
+        } catch (e) {}
+        var theme = choice;
+        if (choice === "system") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        if (theme !== "light") {
+          theme = "dark";
+        }
+        var root = document.documentElement;
+        root.setAttribute("data-theme", theme);
+        root.setAttribute("data-theme-choice", choice);
+        root.style.colorScheme = theme;
+        root.style.backgroundColor = theme === "light" ? "#eef0f3" : "#0d1117";
+        root.style.color = theme === "light" ? "#1f2933" : "#e6edf3";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

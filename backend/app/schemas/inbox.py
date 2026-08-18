@@ -96,3 +96,30 @@ class TelegramSyncResult(BaseModel):
     media_already_stored: int = 0
 
 
+class SlackHealth(BaseModel):
+    mode: str
+    configured: bool = False
+    authenticated: bool = False
+    socket_configured: bool = False
+    socket_connected: bool = False
+    sync_ready: bool = False
+
+
+class SlackSyncResult(BaseModel):
+    chats_seen: int = 0
+    chats_created: int = 0
+    messages_seen: int = 0
+    messages_created: int = 0
+    messages_existing: int = 0
+    messages_skipped: int = 0
+    contacts_created: int = 0
+    threads_seen: int = 0
+    files_seen: int = 0
+    files_downloaded: int = 0
+    files_existing: int = 0
+    files_skipped: int = 0
+    files_failed: int = 0
+    media_downloaded: int = 0
+    messages_updated: int = 0
+
+

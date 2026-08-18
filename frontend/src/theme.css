@@ -1,0 +1,111 @@
+/* Theme tokens. Dark is the working default; light stays a first-class alternative. */
+
+html {
+  color-scheme: dark;
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  background: #eef0f3;
+  color: #1f2933;
+}
+
+html[data-theme="dark"],
+html:not([data-theme]) {
+  --bg-app: #0d1117;
+  --bg-sidebar: #11161d;
+  --bg-conversation: #0b0f14;
+  --bg-panel: #161b22;
+  --bg-card: #1c232c;
+  --bg-hover: #1a222b;
+  --bg-selected: #1a2836;
+  --bg-input: #0f141b;
+
+  --text-primary: #e6edf3;
+  --text-secondary: #9aa4b2;
+  --text-muted: #7d8794;
+  --text-on-accent: #f4f8fc;
+
+  --border: #2a313c;
+  --border-strong: #3d4754;
+
+  --incoming-bg: #1a222c;
+  --incoming-border: #2c3642;
+  --outgoing-bg: #173044;
+  --outgoing-border: #2c5570;
+
+  --warning: #c9a15b;
+  --warning-bg: #241c10;
+  --warning-border: #5a4720;
+  --success: #5ea67c;
+  --success-bg: #13251b;
+  --danger: #d46767;
+  --danger-bg: #2d1616;
+  --accent: #6d97b8;
+  --accent-hover: #82aac8;
+  --skeleton: #1c242e;
+  --overlay: rgba(8, 12, 18, 0.78);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --focus: #8bb4d4;
+  --scrollbar: #3d4754;
+}
+
+html[data-theme="light"] {
+  --bg-app: #eef0f3;
+  --bg-sidebar: #f7f8fa;
+  --bg-conversation: #e8ecf2;
+  --bg-panel: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #eef2f6;
+  --bg-selected: #e7eef5;
+  --bg-input: #ffffff;
+
+  --text-primary: #1f2933;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-on-accent: #ffffff;
+
+  --border: #e3e6ea;
+  --border-strong: #cfd5dd;
+
+  --incoming-bg: #ffffff;
+  --incoming-border: #dfe4ea;
+  --outgoing-bg: #dbe8f7;
+  --outgoing-border: #c3d8ef;
+
+  --warning: #9a6700;
+  --warning-bg: #fdf6e6;
+  --warning-border: #e0b978;
+  --success: #2f7d4a;
+  --success-bg: #e8f4ec;
+  --danger: #b42318;
+  --danger-bg: #f8e8e6;
+  --accent: #1f4b73;
+  --accent-hover: #2a628f;
+  --skeleton: rgba(16, 24, 40, 0.06);
+  --overlay: rgba(9, 12, 20, 0.72);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --focus: #1f4b73;
+  --scrollbar: #c5ccd4;
+}
+
+/* Compatibility aliases used by existing rules. */
+:root,
+html[data-theme] {
+  --bg: var(--bg-app);
+  --panel: var(--bg-panel);
+  --sidebar: var(--bg-sidebar);
+  --canvas: var(--bg-conversation);
+  --text: var(--text-primary);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --incoming: var(--incoming-bg);
+  --incoming-line: var(--incoming-border);
+  --outgoing: var(--outgoing-bg);
+  --outgoing-line: var(--outgoing-border);
+  --warning-line: var(--warning-border);
+  --warning-soft: var(--warning-bg);
+  --font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}

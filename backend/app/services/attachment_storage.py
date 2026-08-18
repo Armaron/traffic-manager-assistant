@@ -118,6 +118,16 @@ def telegram_download_dir(chat_external_id: str, ref: str) -> Path:
     return folder
 
 
+def slack_chat_dir(chat_external_id: str) -> Path:
+    return _chat_dir("slack", chat_external_id)
+
+
+def slack_download_dir(chat_external_id: str, ref: str) -> Path:
+    folder = slack_chat_dir(chat_external_id) / f"dl-{_token(ref)}"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def promote_to_content_path(path: Path, filename: str, folder: Path | None = None) -> Path | None:
     """TypeX refs change per session, so name stored files by content instead."""
     if not is_within_attachments(path) or not path.is_file():

@@ -13,11 +13,13 @@ import {
   fetchChats,
   fetchHealth,
   fetchSyncStatus,
+  fetchSlackHealth,
   fetchTelegramHealth,
   fetchTypeXHealth,
   reanalyzeChat,
   seedMockData,
   setAutoSync,
+  syncSlack,
   syncTelegram,
   syncTypeX,
   updateChatStatus,
@@ -132,6 +134,7 @@ export function InboxPage() {
   const [seeding, setSeeding] = useState(false);
   const [typexSyncing, setTypexSyncing] = useState(false);
   const [telegramSyncing, setTelegramSyncing] = useState(false);
+  const [slackSyncing, setSlackSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState("");
   const [typexMode, setTypexMode] = useState("mock");
   const [typexConnected, setTypexConnected] = useState(false);
@@ -143,6 +146,12 @@ export function InboxPage() {
   const [telegramAuthorized, setTelegramAuthorized] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramSyncReady, setTelegramSyncReady] = useState(false);
+  const [slackMode, setSlackMode] = useState("mock");
+  const [slackConfigured, setSlackConfigured] = useState(false);
+  const [slackAuthenticated, setSlackAuthenticated] = useState(false);
+  const [slackSocketConfigured, setSlackSocketConfigured] = useState(false);
+  const [slackSocketConnected, setSlackSocketConnected] = useState(false);
+  const [slackSyncReady, setSlackSyncReady] = useState(false);
   const [appEnv, setAppEnv] = useState("");
   const [integrationsResolved, setIntegrationsResolved] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -157,7 +166,8 @@ export function InboxPage() {
     integrationsResolved &&
     appEnv === "development" &&
     typexMode !== "real" &&
-    telegramMode !== "real";
+    telegramMode !== "real" &&
+    slackMode !== "real";
 
   async function loadChats(preferredId?: number | null) {
     const items = await fetchChats();
@@ -262,9 +272,10 @@ export function InboxPage() {
         }
         setConnection("connected");
         setAppEnv(health.app_env);
-        const [typex, telegram] = await Promise.all([
+        const [typex, telegram, slack] = await Promise.all([
           fetchTypeXHealth(),
           fetchTelegramHealth().catch(() => null),
+          fetchSlackHealth().catch(() => null),
         ]);
         if (!cancelled) {
           setTypexMode(typex.mode);
@@ -278,6 +289,14 @@ export function InboxPage() {
             setTelegramAuthorized(telegram.authorized);
             setTelegramConnected(telegram.connected);
             setTelegramSyncReady(telegram.sync_ready);
+          }
+          if (slack) {
+            setSlackMode(slack.mode);
+            setSlackConfigured(slack.configured);
+            setSlackAuthenticated(slack.authenticated);
+            setSlackSocketConfigured(slack.socket_configured);
+            setSlackSocketConnected(slack.socket_connected);
+            setSlackSyncReady(slack.sync_ready);
           }
           setIntegrationsResolved(true);
         }
@@ -377,6 +396,27 @@ export function InboxPage() {
       setSyncNote(syncErrorNote(err, "TypeX MCP unavailable"));
     } finally {
       setTypexSyncing(false);
+    }
+  }
+
+  async function handleSyncSlack() {
+    setSlackSyncing(true);
+    try {
+      const result = await syncSlack();
+      await loadChats();
+      const slack = await fetchSlackHealth();
+      setSlackMode(slack.mode);
+      setSlackConfigured(slack.configured);
+      setSlackAuthenticated(slack.authenticated);
+      setSlackSocketConfigured(slack.socket_configured);
+      setSlackSocketConnected(slack.socket_connected);
+      setSlackSyncReady(slack.sync_ready);
+      setSyncNote(`${result.messages_created} new Slack messages`);
+      setError("");
+    } catch (err: unknown) {
+      setSyncNote(syncErrorNote(err, "Slack unavailable"));
+    } finally {
+      setSlackSyncing(false);
     }
   }
 
@@ -488,6 +528,7 @@ export function InboxPage() {
 
   const typexBusy = typexSyncing || syncStatus?.typex.running === true;
   const telegramBusy = telegramSyncing || syncStatus?.telegram.running === true;
+  const slackBusy = slackSyncing || syncStatus?.slack.running === true;
 
   return (
     <div className="inbox-shell">
@@ -529,6 +570,16 @@ export function InboxPage() {
           void handleSyncTelegram();
         }}
         telegramSyncing={telegramBusy}
+        slackMode={slackMode}
+        slackConfigured={slackConfigured}
+        slackAuthenticated={slackAuthenticated}
+        slackSocketConfigured={slackSocketConfigured}
+        slackSocketConnected={slackSocketConnected}
+        slackSyncReady={slackSyncReady}
+        onSyncSlack={() => {
+          void handleSyncSlack();
+        }}
+        slackSyncing={slackBusy}
         syncNote={syncNote}
       />
       <ConversationView

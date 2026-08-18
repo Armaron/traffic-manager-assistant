@@ -534,6 +534,7 @@ def test_status_endpoint_reports_manual_sync_result(api_client: TestClient) -> N
         "inbox_generation",
         "typex",
         "telegram",
+        "slack",
     }
 
 

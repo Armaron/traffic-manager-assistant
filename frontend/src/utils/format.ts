@@ -36,6 +36,9 @@ export function formatMessageTime(value: string): string {
 }
 
 export function platformLabel(platform: string): string {
+  if (platform === "slack") {
+    return "Slack";
+  }
   return platform.toUpperCase();
 }
 

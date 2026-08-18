@@ -14,6 +14,7 @@ class MessageIngestionService:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.message_updated = False
 
     def ingest_chat(self, payload: UnifiedChat) -> tuple[Chat, bool]:
         chat = self.session.scalar(
@@ -43,6 +44,7 @@ class MessageIngestionService:
         return chat, True
 
     def ingest_message(self, payload: UnifiedMessage) -> tuple[Message, bool]:
+        self.message_updated = False
         existing_chat = self.session.scalar(
             select(Chat).where(
                 Chat.platform == payload.platform,
@@ -84,6 +86,15 @@ class MessageIngestionService:
                 )
                 if analysis is not None:
                     self.session.delete(analysis)
+            if payload.platform == Platform.SLACK:
+                if payload.thread_external_id and existing.thread_external_id is None:
+                    existing.thread_external_id = payload.thread_external_id
+                if payload.text and payload.text != existing.text:
+                    existing.text = payload.text
+                    self.message_updated = True
+                if payload.raw_data and payload.raw_data.get("deleted") and existing.text != payload.text:
+                    existing.text = payload.text
+                    self.message_updated = True
             self.session.flush()
             self._ingest_attachments(existing, payload)
             return existing, False
@@ -116,6 +127,7 @@ class MessageIngestionService:
             direction=direction,
             direction_source=source,
             is_outgoing=is_outgoing,
+            thread_external_id=payload.thread_external_id,
             raw_data=payload.raw_data,
         )
         self.session.add(message)
@@ -138,6 +150,16 @@ class MessageIngestionService:
             )
             if exists is not None:
                 continue
+            if item.file_ref:
+                same_ref = self.session.scalar(
+                    select(MessageAttachment).where(
+                        MessageAttachment.message_id == message.id,
+                        MessageAttachment.filename == item.filename,
+                        MessageAttachment.byte_size == item.byte_size,
+                    )
+                )
+                if same_ref is not None:
+                    continue
             self.session.add(
                 MessageAttachment(
                     message_id=message.id,

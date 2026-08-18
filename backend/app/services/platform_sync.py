@@ -9,7 +9,10 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.integrations.factory import get_telegram_adapter, get_typex_adapter
+from app.integrations.factory import get_slack_adapter, get_telegram_adapter, get_typex_adapter
+from app.integrations.slack import SlackAdapter
+from app.integrations.slack_client import slack_missing_configuration
+from app.integrations.slack_errors import SlackAuthenticationError, SlackConfigurationError
 from app.integrations.telegram import TelegramAdapter
 from app.integrations.telegram_client import telegram_missing_configuration
 from app.integrations.telegram_errors import TelegramConfigurationError, TelegramConnectionError
@@ -17,7 +20,8 @@ from app.integrations.typex import TypeXAdapter
 from app.integrations.typex_errors import TypeXConfigurationError, TypeXSyncNotReadyError
 from app.integrations.typex_policy import missing_required_tool_bindings
 from app.integrations.typex_readiness import TypeXSyncReadiness, mock_typex_sync_readiness
-from app.schemas.inbox import TelegramSyncResult, TypeXSyncResult
+from app.schemas.inbox import SlackSyncResult, TelegramSyncResult, TypeXSyncResult
+from app.services.slack_sync import sync_slack_messages
 from app.services.telegram_sync import sync_telegram_messages
 from app.services.typex_sync import sync_typex_messages
 
@@ -28,6 +32,10 @@ def typex_mode() -> str:
 
 def telegram_mode() -> str:
     return (get_settings().telegram_mode or "").strip().lower()
+
+
+def slack_mode() -> str:
+    return (get_settings().slack_mode or "").strip().lower()
 
 
 def adapter_sync_readiness(adapter: object, *, mode: str) -> TypeXSyncReadiness:
@@ -55,6 +63,15 @@ def telegram_configured() -> tuple[bool, str | None]:
         return True, None
     if telegram_missing_configuration(settings):
         return False, "telegram_configuration"
+    return True, None
+
+
+def slack_configured() -> tuple[bool, str | None]:
+    settings = get_settings()
+    if slack_mode() != "real":
+        return True, None
+    if slack_missing_configuration(settings):
+        return False, "slack_configuration"
     return True, None
 
 
@@ -102,4 +119,27 @@ async def run_telegram_sync(
         adapter,
         chat_limit=settings.telegram_sync_chat_limit,
         message_limit=settings.telegram_sync_message_limit,
+    )
+
+
+async def run_slack_sync(
+    session: Session,
+    *,
+    adapter: object | None = None,
+    settings: Settings | None = None,
+) -> SlackSyncResult:
+    settings = settings or get_settings()
+    mode = (settings.slack_mode or "").strip().lower()
+    if mode == "real" and slack_missing_configuration(settings):
+        raise SlackConfigurationError("Slack configuration required")
+    adapter = adapter if adapter is not None else get_slack_adapter()
+    if mode == "real" and isinstance(adapter, SlackAdapter):
+        await adapter.ensure_ready_for_sync()
+    elif not await adapter.health_check():
+        raise SlackAuthenticationError("Slack authentication failed")
+    return await sync_slack_messages(
+        session,
+        adapter,
+        chat_limit=settings.slack_sync_chat_limit,
+        message_limit=settings.slack_sync_message_limit,
     )
