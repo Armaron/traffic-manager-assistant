@@ -55,6 +55,8 @@ class TelegramReadClient(Protocol):
 
     async def get_messages(self, chat_external_id: str, limit: int) -> list[TelegramMessageRecord]: ...
 
+    async def download_media(self, chat_external_id: str, message_id: int, folder: Path) -> Path | None: ...
+
 
 def resolve_session_path(raw: str | None) -> Path:
     text = (raw or "").strip()
@@ -135,6 +137,21 @@ def _sender_from_message(message: Any) -> tuple[str | None, int | None, str | No
             return PEER_CHAT, int(peer.chat_id), None
         return PEER_USER, sender_id, None
     return None, None, None
+
+
+def _media_metadata(message: Any) -> tuple[int | None, str | None, str | None]:
+    """Telethon exposes size/mime/name on message.file for photos and documents alike."""
+    handle = getattr(message, "file", None)
+    if handle is None:
+        return None, None, None
+    size = getattr(handle, "size", None)
+    mime = getattr(handle, "mime_type", None)
+    name = getattr(handle, "name", None)
+    return (
+        int(size) if isinstance(size, int) else None,
+        mime if isinstance(mime, str) and mime.strip() else None,
+        name if isinstance(name, str) and name.strip() else None,
+    )
 
 
 def _media_kind(message: Any) -> str | None:
@@ -285,13 +302,7 @@ class TelethonReadClient:
 
     async def get_messages(self, chat_external_id: str, limit: int) -> list[TelegramMessageRecord]:
         client = self._require_mtproto()
-        parsed = parse_canonical_peer_id(chat_external_id)
-        if parsed is None:
-            raise TelegramReadError("Telegram read failed")
-        entity = self._entities.get(chat_external_id)
-        if entity is None:
-            entity = await self._entity_for(parsed[0], parsed[1])
-            self._entities[chat_external_id] = entity
+        entity = await self._resolved_entity(chat_external_id)
         dialog = _dialog_from_entity(entity)
         chat_name = display_name_for_dialog(dialog)
         chat_type = chat_type_for_dialog(dialog)
@@ -343,6 +354,7 @@ class TelethonReadClient:
         text = getattr(message, "message", None)
         if not isinstance(text, str):
             text = None
+        media_bytes, media_mime, media_filename = _media_metadata(message)
         return TelegramMessageRecord(
             message_id=int(message.id),
             chat_external_id=chat_external_id,
@@ -356,4 +368,33 @@ class TelethonReadClient:
             text=text,
             media_kind=_media_kind(message),
             is_service=getattr(message, "action", None) is not None,
+            media_bytes=media_bytes,
+            media_mime=media_mime,
+            media_filename=media_filename,
         )
+
+    async def download_media(self, chat_external_id: str, message_id: int, folder: Path) -> Path | None:
+        """Read-only media fetch. Telethon picks the file name inside `folder`."""
+        client = self._require_mtproto()
+        entity = await self._resolved_entity(chat_external_id)
+
+        async def _download() -> Path | None:
+            found = await client.get_messages(entity, ids=message_id)
+            message = found[0] if isinstance(found, list) else found
+            if message is None or getattr(message, "media", None) is None:
+                return None
+            saved = await client.download_media(message, file=str(folder))
+            return Path(saved) if saved else None
+
+        return await self._with_telegram_errors("download_media", _download)
+
+    async def _resolved_entity(self, chat_external_id: str) -> Any:
+        entity = self._entities.get(chat_external_id)
+        if entity is not None:
+            return entity
+        parsed = parse_canonical_peer_id(chat_external_id)
+        if parsed is None:
+            raise TelegramReadError("Telegram read failed")
+        entity = await self._entity_for(parsed[0], parsed[1])
+        self._entities[chat_external_id] = entity
+        return entity

@@ -1,13 +1,15 @@
 """Telegram user-account adapter. READ-ONLY.
 
 Uses MTProto via a narrow TelegramReadClient wrapper.
-Never sends, edits, deletes, marks read, or downloads media.
+Never sends, edits, deletes, marks read, or joins. Media is only ever downloaded.
 """
 
 from __future__ import annotations
 
+import logging
+
 from app.config import Settings, get_settings
-from app.enums import Platform
+from app.enums import AttachmentKind, Platform
 from app.integrations.base import MessengerAdapter
 from app.integrations.telegram_client import TelegramReadClient, TelethonReadClient
 from app.integrations.telegram_errors import (
@@ -15,8 +17,29 @@ from app.integrations.telegram_errors import (
     TelegramConnectionError,
     TelegramError,
 )
-from app.integrations.telegram_mapping import TelegramAccount, map_dialog, map_message
-from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
+from app.integrations.telegram_mapping import (
+    TelegramAccount,
+    TelegramMediaCandidate,
+    attachment_kind_for,
+    map_dialog,
+    map_message,
+    media_candidate,
+)
+from app.schemas.unified import UnifiedAttachment, UnifiedChat, UnifiedMessage, UnifiedSender
+from app.services.attachment_storage import (
+    MAX_ATTACHMENT_BYTES,
+    content_type_for,
+    discard_download_dir,
+    is_within_attachments,
+    normalized_filename,
+    promote_to_content_path,
+    sniff_media,
+    storage_key_for,
+    telegram_chat_dir,
+    telegram_download_dir,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramAdapter(MessengerAdapter):
@@ -36,6 +59,8 @@ class TelegramAdapter(MessengerAdapter):
         self._chat_cache: dict[str, UnifiedChat] = {}
         self.last_messages_seen = 0
         self.last_messages_skipped = 0
+        self.last_media_candidates: dict[str, TelegramMediaCandidate] = {}
+        self.media_download_calls = 0
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> TelegramAdapter:
@@ -96,16 +121,72 @@ class TelegramAdapter(MessengerAdapter):
         records = await self._reader.get_messages(chat_id, self._message_limit)
         self.last_messages_seen = len(records)
         mapped: list[UnifiedMessage] = []
+        candidates: dict[str, TelegramMediaCandidate] = {}
         skipped = 0
         for record in records:
             item = map_message(record, current_user_id=current.id)
             if item is None:
                 skipped += 1
                 continue
+            candidate = media_candidate(record)
+            if candidate is not None:
+                candidates[item.external_id] = candidate
             mapped.append(item)
         mapped.sort(key=lambda item: item.timestamp)
         self.last_messages_skipped = skipped
+        self.last_media_candidates = candidates
         return mapped
+
+    async def download_media(self, candidate: TelegramMediaCandidate) -> UnifiedAttachment | None:
+        """Store one message's media locally. Returns None when skipped or unusable."""
+        if candidate.too_large:
+            logger.info("telegram media skipped reason=size_limit")
+            return None
+        folder = telegram_download_dir(candidate.chat_external_id, str(candidate.message_id))
+        if not is_within_attachments(folder):
+            return None
+        try:
+            self.media_download_calls += 1
+            saved = await self._reader.download_media(
+                candidate.chat_external_id, candidate.message_id, folder
+            )
+            if saved is None or not saved.is_file():
+                return None
+            size = saved.stat().st_size
+            if size <= 0 or size > MAX_ATTACHMENT_BYTES:
+                saved.unlink(missing_ok=True)
+                logger.info("telegram media discarded reason=size_limit")
+                return None
+            sniffed = sniff_media(saved)
+            filename = normalized_filename(saved.name, sniffed[1]) if sniffed else saved.name
+            promoted = promote_to_content_path(
+                saved, filename, telegram_chat_dir(candidate.chat_external_id)
+            )
+            if promoted is None:
+                return None
+            key = storage_key_for(promoted)
+            if key is None:
+                return None
+            content_type = sniffed[0] if sniffed else (
+                candidate.content_type or content_type_for(filename, candidate.kind)
+            )
+            # Sniffed bytes beat the declared mime: a photo can arrive as an "image/jpeg" PNG.
+            kind = (
+                candidate.kind
+                if candidate.kind == AttachmentKind.VOICE
+                else attachment_kind_for(None, content_type)
+            )
+            return UnifiedAttachment(
+                file_ref=str(candidate.message_id),
+                message_external_id=str(candidate.message_id),
+                filename=filename,
+                kind=kind,
+                content_type=content_type,
+                storage_key=key,
+                byte_size=size,
+            )
+        finally:
+            discard_download_dir(folder)
 
     async def get_recent_messages(self, limit: int = 50) -> list[UnifiedMessage]:
         chats = self._chat_cache or {chat.external_id: chat for chat in await self.get_chats()}

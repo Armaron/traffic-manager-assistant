@@ -89,5 +89,10 @@ class TelegramSyncResult(BaseModel):
     messages_existing: int = 0
     messages_skipped: int = 0
     contacts_created: int = 0
+    media_seen: int = 0
+    media_downloaded: int = 0
+    media_failed: int = 0
+    media_skipped_size: int = 0
+    media_already_stored: int = 0
 
 

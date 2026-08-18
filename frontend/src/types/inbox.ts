@@ -61,6 +61,7 @@ export type MessageAttachment = {
   content_type: string | null;
   byte_size: number | null;
   url: string;
+  thumbnail_url: string | null;
 };
 
 export type MediaPlaceholder = {
@@ -126,6 +127,11 @@ export type TelegramSyncResult = {
   messages_existing: number;
   messages_skipped: number;
   contacts_created: number;
+  media_seen?: number;
+  media_downloaded?: number;
+  media_failed?: number;
+  media_skipped_size?: number;
+  media_already_stored?: number;
 };
 
 export type TypeXSyncResult = {

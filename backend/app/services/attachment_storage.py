@@ -10,7 +10,8 @@ from app.enums import AttachmentKind
 
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
-VOICE_EXTENSIONS = {".m4a", ".mp3", ".ogg", ".wav", ".aac", ".amr"}
+VOICE_EXTENSIONS = {".m4a", ".mp3", ".ogg", ".oga", ".wav", ".aac", ".amr"}
+FILE_EXTENSIONS = {".mp4", ".mov", ".webm", ".zip", ".txt", ".csv", ".docx", ".xlsx"}
 CONTENT_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -21,8 +22,15 @@ CONTENT_TYPES = {
     ".m4a": "audio/mp4",
     ".mp3": "audio/mpeg",
     ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
     ".wav": "audio/wav",
     ".pdf": "application/pdf",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".zip": "application/zip",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
 }
 
 
@@ -71,20 +79,41 @@ def _token(value: str) -> str:
 
 def _extension(filename: str) -> str:
     suffix = Path(filename).suffix.lower()
-    if suffix in CONTENT_TYPES or suffix in IMAGE_EXTENSIONS or suffix in VOICE_EXTENSIONS:
+    if (
+        suffix in CONTENT_TYPES
+        or suffix in IMAGE_EXTENSIONS
+        or suffix in VOICE_EXTENSIONS
+        or suffix in FILE_EXTENSIONS
+    ):
         return suffix
     return ""
 
 
-def typex_chat_dir(chat_external_id: str) -> Path:
-    folder = attachments_root() / "typex" / _token(chat_external_id)
+def _chat_dir(platform: str, chat_external_id: str) -> Path:
+    """Chat folders are hashed so no chat name or peer id lands on disk."""
+    folder = attachments_root() / platform / _token(chat_external_id)
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def typex_chat_dir(chat_external_id: str) -> Path:
+    return _chat_dir("typex", chat_external_id)
 
 
 def typex_download_dir(chat_external_id: str, ref: str) -> Path:
     """TypeX treats save_path as a folder and keeps the original file name."""
     folder = typex_chat_dir(chat_external_id) / f"dl-{_token(ref)}"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def telegram_chat_dir(chat_external_id: str) -> Path:
+    return _chat_dir("telegram", chat_external_id)
+
+
+def telegram_download_dir(chat_external_id: str, ref: str) -> Path:
+    """Telethon picks its own file name, so download into a scratch folder first."""
+    folder = telegram_chat_dir(chat_external_id) / f"dl-{_token(ref)}"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 

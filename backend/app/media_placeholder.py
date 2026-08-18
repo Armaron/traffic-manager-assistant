@@ -31,7 +31,7 @@ _PREFIX = re.compile(
 _SAID = re.compile(r"^[，,。.、\s]*(?:并且说了|並且說了|并说了|並說了|说了|說了)?")
 
 _TOKENS = {
-    AttachmentKind.IMAGE: ("[图片]", "[圖片]", "[照片]", "[photo]", "[image]", "[picture]"),
+    AttachmentKind.IMAGE: ("[图片]", "[圖片]", "[照片]", "[photo]", "[image]", "[picture]", "[sticker]"),
     AttachmentKind.VOICE: ("[语音]", "[語音]", "[voice]", "[voice message]"),
     AttachmentKind.FILE: ("[文件]", "[视频]", "[影片]", "[file]", "[video]", "[document]"),
 }

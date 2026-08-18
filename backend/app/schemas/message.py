@@ -35,6 +35,13 @@ class AttachmentRead(BaseModel):
     def url(self) -> str:
         return f"/api/messages/{self.message_id}/attachments/{self.id}/file"
 
+    @computed_field
+    @property
+    def thumbnail_url(self) -> str | None:
+        if self.kind not in {AttachmentKind.IMAGE, AttachmentKind.MIXED}:
+            return None
+        return f"/api/messages/{self.message_id}/attachments/{self.id}/thumbnail"
+
 
 class MediaPlaceholderRead(BaseModel):
     kind: AttachmentKind

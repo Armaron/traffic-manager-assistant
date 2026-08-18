@@ -373,11 +373,130 @@ select {
   font-style: italic;
 }
 
-.message-bubble__image {
+/* Media bubbles may grow wider than text ones, but still hug the preview. */
+.message-bubble.has-media {
+  max-width: 540px;
+}
+
+.message-bubble__images {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.message-bubble__images.is-pair,
+.message-bubble__images.is-many {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.message-bubble__images.is-trio {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.message-bubble__images.is-trio > *:first-child {
+  grid-column: span 2;
+}
+
+.attachment-image {
   display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--skeleton, rgba(16, 24, 40, 0.06));
+  cursor: zoom-in;
+  overflow: hidden;
+  line-height: 0;
+}
+
+/* Reserve space while the thumbnail decodes so the thread does not jump. */
+.attachment-image.is-loading {
+  min-height: 140px;
+  animation: attachment-pulse 1.4s ease-in-out infinite;
+}
+
+.attachment-image.is-loading img {
+  opacity: 0;
+}
+
+.attachment-image img {
+  display: block;
+  width: auto;
   max-width: 100%;
-  max-height: 280px;
-  border-radius: 6px;
+  height: auto;
+  max-height: 400px;
+  object-fit: contain;
+  transition: opacity 120ms ease-in;
+}
+
+.message-bubble__images.is-pair .attachment-image img,
+.message-bubble__images.is-trio .attachment-image img,
+.message-bubble__images.is-many .attachment-image img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+}
+
+.attachment-image--error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--incoming-line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: default;
+  animation: none;
+}
+
+.attachment-image__actions {
+  display: flex;
+  gap: 6px;
+}
+
+@keyframes attachment-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vh 4vw;
+  background: rgba(9, 12, 20, 0.82);
+}
+
+.lightbox__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.lightbox__image {
+  max-width: 92vw;
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.lightbox__bar {
+  display: flex;
+  gap: 8px;
+}
+
+.lightbox__bar .ghost-button {
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .message-bubble__audio {
@@ -642,5 +761,14 @@ select {
 
   .message-bubble {
     max-width: 88%;
+  }
+
+  .message-bubble.has-media {
+    max-width: 88%;
+  }
+
+  .attachment-image img {
+    width: 100%;
+    max-height: 320px;
   }
 }

@@ -1,7 +1,8 @@
 """Map Telegram dialogs/messages to unified inbox models.
 
-Service/action messages are skipped (not ingested). Media is never downloaded;
-captions are used when present, otherwise a privacy-safe placeholder is stored.
+Service/action messages are skipped (not ingested). Captions are used as message text
+when present, otherwise a privacy-safe placeholder is stored; media itself is fetched
+separately by the adapter through the read-only download path.
 
 Direction:
 1. native Telegram `out` when present
@@ -14,8 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from app.enums import ChatType, DirectionSource, MessageDirection, Platform
+from app.enums import AttachmentKind, ChatType, DirectionSource, MessageDirection, Platform
 from app.schemas.unified import UnifiedChat, UnifiedMessage, UnifiedSender
+from app.services.attachment_storage import MAX_ATTACHMENT_BYTES
 
 MEDIA_PLACEHOLDERS = {
     "photo": "[Photo]",
@@ -60,6 +62,54 @@ class TelegramMessageRecord:
     text: str | None = None
     media_kind: str | None = None
     is_service: bool = False
+    media_bytes: int | None = None
+    media_mime: str | None = None
+    media_filename: str | None = None
+
+
+DOWNLOADABLE_MEDIA = {"photo", "video", "voice", "document", "sticker"}
+IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"}
+
+
+@dataclass(frozen=True)
+class TelegramMediaCandidate:
+    """What the adapter needs to download one message's media, without Telethon objects."""
+
+    chat_external_id: str
+    message_id: int
+    kind: AttachmentKind
+    filename: str
+    byte_size: int | None = None
+    content_type: str | None = None
+
+    @property
+    def too_large(self) -> bool:
+        return self.byte_size is not None and self.byte_size > MAX_ATTACHMENT_BYTES
+
+
+def attachment_kind_for(media_kind: str | None, mime: str | None) -> AttachmentKind:
+    if media_kind == "voice":
+        return AttachmentKind.VOICE
+    if media_kind in {"photo", "sticker"}:
+        return AttachmentKind.IMAGE
+    if (mime or "").lower() in IMAGE_MIME_TYPES:
+        return AttachmentKind.IMAGE
+    return AttachmentKind.FILE
+
+
+def media_candidate(record: TelegramMessageRecord) -> TelegramMediaCandidate | None:
+    if record.is_service or record.media_kind not in DOWNLOADABLE_MEDIA:
+        return None
+    kind = attachment_kind_for(record.media_kind, record.media_mime)
+    name = (record.media_filename or "").strip() or f"{record.media_kind}-{record.message_id}"
+    return TelegramMediaCandidate(
+        chat_external_id=record.chat_external_id,
+        message_id=record.message_id,
+        kind=kind,
+        filename=name,
+        byte_size=record.media_bytes,
+        content_type=record.media_mime,
+    )
 
 
 def canonical_peer_id(kind: str, peer_id: int) -> str:
