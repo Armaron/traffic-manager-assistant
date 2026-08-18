@@ -157,6 +157,8 @@ export type AIAnalysis = {
   message_id: number;
   summary: string;
   request: string;
+  conversation_explanation_ru: string | null;
+  next_action_ru: string | null;
   category: string;
   priority: Priority;
   needs_reply: boolean;
@@ -164,6 +166,8 @@ export type AIAnalysis = {
   reason: string;
   draft_reply: string | null;
   important_entities: ImportantEntities | null;
+  direction_confirmation_required: boolean;
+  draft_is_provisional: boolean;
   provider: string | null;
   model: string | null;
   created_at: string;

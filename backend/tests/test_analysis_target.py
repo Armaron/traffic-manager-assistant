@@ -163,11 +163,11 @@ def test_chat_summary_ai_uses_latest_actionable_not_older_incoming(db_session: S
 
     unknown_analysis = asyncio.run(service.analyze_message(unknown.id))
     db_session.commit()
-    assert unknown_analysis.needs_reply is False
-    assert unknown_analysis.draft_reply is None
+    assert unknown_analysis.needs_reply is True
+    assert unknown_analysis.draft_is_provisional is True
 
     summary = next(item for item in list_chat_summaries(db_session) if item.id == chat.id)
-    assert summary.ai_needs_reply is False
+    assert summary.ai_needs_reply is True
     assert summary.ai_priority is not None
 
 
@@ -240,8 +240,8 @@ def test_manual_incoming_after_invalidation_creates_fresh_analysis(db_session: S
     service = AIAnalysisService(db_session, MockAIProvider())
     first = asyncio.run(service.analyze_message(message.id))
     db_session.commit()
-    assert first.draft_reply is None
-    assert first.needs_reply is False
+    assert first.needs_reply is True
+    assert first.draft_is_provisional is True
 
     set_message_direction(db_session, message.id, MessageDirection.INCOMING)
     db_session.commit()
@@ -280,7 +280,7 @@ def test_outgoing_override_switches_target_and_keeps_older_analysis(
     incoming_analysis = asyncio.run(service.analyze_message(incoming.id))
     unknown_analysis = asyncio.run(service.analyze_message(unknown.id))
     db_session.commit()
-    assert unknown_analysis.needs_reply is False
+    assert unknown_analysis.draft_is_provisional is True
 
     patched = api_client.patch(f"/messages/{unknown.id}/direction", json={"direction": "outgoing"})
     assert patched.status_code == 200

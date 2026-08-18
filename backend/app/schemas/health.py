@@ -7,3 +7,4 @@ class HealthResponse(BaseModel):
     version: str
     typex_mode: str
     ai_provider: str
+    app_env: str

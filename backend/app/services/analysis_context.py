@@ -8,6 +8,7 @@ from app.schemas.company import CompanyRead
 from app.schemas.contact import ContactRead
 from app.schemas.knowledge import KnowledgeEntryRead
 from app.schemas.message import MessageRead
+from app.services.inbox import has_outgoing_after_message
 
 RECENT_MESSAGE_LIMIT = 15
 
@@ -61,4 +62,5 @@ def build_analysis_context(session: Session, message_id: int) -> AIAnalysisConte
         contact=ContactRead.model_validate(contact) if contact else None,
         company=CompanyRead.model_validate(company) if company else None,
         knowledge_entries=[KnowledgeEntryRead.model_validate(item) for item in knowledge_entries],
+        already_answered=has_outgoing_after_message(session, message),
     )

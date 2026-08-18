@@ -4,4 +4,5 @@ export type HealthResponse = {
   version: string;
   typex_mode: string;
   ai_provider: string;
+  app_env: string;
 };

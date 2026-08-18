@@ -15,4 +15,5 @@ async def health() -> HealthResponse:
         version=settings.app_version,
         typex_mode=settings.typex_mode,
         ai_provider=settings.ai_provider,
+        app_env=settings.app_env,
     )

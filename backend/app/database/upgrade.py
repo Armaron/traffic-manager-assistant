@@ -9,6 +9,25 @@ from sqlalchemy.engine import Engine
 def apply_schema_upgrades(engine: Engine) -> None:
     if engine.dialect.name != "sqlite":
         return
+    _upgrade_messages(engine)
+    _upgrade_ai_analyses(engine)
+
+
+def _upgrade_ai_analyses(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "ai_analyses" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("ai_analyses")}
+    with engine.begin() as connection:
+        if "conversation_explanation_ru" not in columns:
+            connection.execute(
+                text("ALTER TABLE ai_analyses ADD COLUMN conversation_explanation_ru TEXT")
+            )
+        if "next_action_ru" not in columns:
+            connection.execute(text("ALTER TABLE ai_analyses ADD COLUMN next_action_ru TEXT"))
+
+
+def _upgrade_messages(engine: Engine) -> None:
     inspector = inspect(engine)
     if "messages" not in inspector.get_table_names():
         return

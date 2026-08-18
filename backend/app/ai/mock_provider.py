@@ -142,16 +142,87 @@ class MockAIProvider(AIProvider):
         text = context.current_message.text.lower()
         for needle, result in _FIXTURES:
             if needle in text:
-                return result
+                return _explained(result, context)
         sender = context.current_message.sender_name or "there"
-        return AIAnalysisResult(
-            summary="Короткое рабочее сообщение, требующее обычного ответа.",
-            request="Уточнить детали и ответить отправителю.",
-            category=AnalysisCategory.OTHER,
-            priority=Priority.NORMAL,
-            needs_reply=True,
-            needs_igor=False,
-            reason="Для этого сообщения нет отдельного mock-сценария, нужен обычный follow-up.",
-            draft_reply=f"Hi {sender}, thanks. I'll check and get back to you.",
-            important_entities=ImportantEntities(),
+        return _explained(
+            AIAnalysisResult(
+                summary="Короткое рабочее сообщение, требующее обычного ответа.",
+                request="Уточнить детали и ответить отправителю.",
+                category=AnalysisCategory.OTHER,
+                priority=Priority.NORMAL,
+                needs_reply=True,
+                needs_igor=False,
+                reason="Для этого сообщения нет отдельного mock-сценария, нужен обычный follow-up.",
+                draft_reply=f"Hi {sender}, thanks. I'll check and get back to you.",
+                important_entities=ImportantEntities(),
+            ),
+            context,
         )
+
+
+_TERM_GLOSSARY: tuple[tuple[str, str], ...] = (
+    ("cpa", "CPA — оплата за одного привлечённого игрока, выполнившего условие оффера."),
+    ("ftd", "FTD — первый депозит нового игрока."),
+    ("revshare", "RevShare — доля от дохода казино вместо фиксированной выплаты."),
+    ("cpc", "CPC — оплата за один клик по рекламе."),
+    ("pwa", "PWA — веб-приложение, которое ставится на телефон как обычное приложение."),
+    ("geo", "GEO — страна или регион, из которого идёт трафик."),
+    ("cap", "cap — предел по количеству игроков или расходу за период."),
+    ("budget", "budget — бюджет, который партнёр готов открутить."),
+    ("creative", "creative — рекламный материал: баннер, видео или текст объявления."),
+    ("landing", "landing page — страница, куда попадает пользователь после клика."),
+    ("welcome offer", "welcome offer — приветственный бонус для новых игроков."),
+)
+
+
+def _explained(result: AIAnalysisResult, context: AIAnalysisContext) -> AIAnalysisResult:
+    """Fixtures hold short fields; the panel needs a Russian walkthrough and a next step."""
+    if result.conversation_explanation_ru and result.next_action_ru:
+        return result
+    return result.model_copy(
+        update={
+            "conversation_explanation_ru": result.conversation_explanation_ru
+            or _mock_explanation(result, context),
+            "next_action_ru": result.next_action_ru or _mock_next_action(result, context),
+        }
+    )
+
+
+def _mock_explanation(result: AIAnalysisResult, context: AIAnalysisContext) -> str:
+    sender = context.current_message.sender_name or "собеседник"
+    parts = [
+        f"Переписка в чате «{context.chat.name}». {result.summary}",
+        f"Что хочет {sender}: {result.request}",
+    ]
+    if context.already_answered:
+        parts.append(
+            "После этого сообщения наша сторона уже отправила ответ, поэтому отвечать заново не нужно."
+        )
+    elif result.needs_reply:
+        parts.append("Ответа с нашей стороны пока нет, поэтому вопрос остаётся открытым.")
+    else:
+        parts.append("Ответ по смыслу не требуется: сообщение не содержит вопроса или просьбы.")
+    parts.append(result.reason)
+    if result.needs_igor:
+        parts.append(
+            "Коммерческие условия здесь решает Игорь, поэтому вопрос нужно передать ему, "
+            "а не подтверждать самостоятельно."
+        )
+    parts.extend(_glossary(f"{context.current_message.text} {result.summary} {result.request}"))
+    return " ".join(part.strip() for part in parts if part.strip())
+
+
+def _mock_next_action(result: AIAnalysisResult, context: AIAnalysisContext) -> str:
+    if context.already_answered:
+        return "Ничего делать не нужно — ответ уже отправлен."
+    if result.needs_igor:
+        return "Передать вопрос Игорю и дождаться его решения."
+    if result.needs_reply:
+        sender = context.current_message.sender_name or "собеседнику"
+        return f"Ответить {sender} по сути вопроса."
+    return "Ответ не нужен, держать переписку на контроле."
+
+
+def _glossary(text: str) -> list[str]:
+    lowered = text.lower()
+    return [explanation for needle, explanation in _TERM_GLOSSARY if needle in lowered]

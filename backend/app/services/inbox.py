@@ -1,4 +1,4 @@
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.enums import AttachmentKind, ConversationStatus, MessageDirection
@@ -137,6 +137,23 @@ def latest_actionable_message(session: Session, chat_id: int) -> Message | None:
 
 def analysis_target_message(session: Session, chat_id: int) -> Message | None:
     return latest_actionable_message(session, chat_id)
+
+
+def has_outgoing_after_message(session: Session, message: Message) -> bool:
+    """Deterministic already-answered check. Ties on timestamp fall back to id order."""
+    later = session.scalar(
+        select(func.count())
+        .select_from(Message)
+        .where(
+            Message.chat_id == message.chat_id,
+            Message.direction == MessageDirection.OUTGOING,
+            or_(
+                Message.timestamp > message.timestamp,
+                and_(Message.timestamp == message.timestamp, Message.id > message.id),
+            ),
+        )
+    )
+    return bool(later)
 
 
 def update_chat_status(

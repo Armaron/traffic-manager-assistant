@@ -170,7 +170,7 @@ def test_reanalyze_updates_same_row(db_session: Session) -> None:
     assert db_session.scalar(select(func.count()).select_from(AIAnalysis)) == 1
 
 
-def test_unknown_direction_summary_blocks_draft(db_session: Session) -> None:
+def test_unknown_direction_allows_provisional_draft(db_session: Session) -> None:
     chat = Chat(
         platform=Platform.TYPEX,
         external_id="tx-unknown",
@@ -194,12 +194,13 @@ def test_unknown_direction_summary_blocks_draft(db_session: Session) -> None:
     analysis = asyncio.run(service.analyze_message(message.id))
     db_session.commit()
     assert analysis.summary
-    assert analysis.draft_reply is None
-    assert analysis.needs_reply is False
-    assert "Direction confirmation required" in analysis.reason
+    assert analysis.needs_reply is True
+    assert analysis.draft_reply is not None
+    assert analysis.direction_confirmation_required is True
+    assert analysis.draft_is_provisional is True
 
 
-def test_manual_incoming_allows_normal_draft(db_session: Session) -> None:
+def test_manual_incoming_clears_provisional_flags(db_session: Session) -> None:
     from app.services.message_direction import set_message_direction
 
     chat = Chat(
@@ -224,8 +225,7 @@ def test_manual_incoming_allows_normal_draft(db_session: Session) -> None:
     service = AIAnalysisService(db_session, MockAIProvider())
     first = asyncio.run(service.analyze_message(message.id))
     db_session.commit()
-    assert first.draft_reply is None
-    assert first.needs_reply is False
+    assert first.draft_is_provisional is True
     set_message_direction(db_session, message.id, MessageDirection.INCOMING)
     db_session.commit()
     assert db_session.scalar(select(AIAnalysis).where(AIAnalysis.message_id == message.id)) is None
@@ -233,4 +233,6 @@ def test_manual_incoming_allows_normal_draft(db_session: Session) -> None:
     db_session.commit()
     assert analysis.needs_reply is True
     assert analysis.draft_reply is not None
+    assert analysis.direction_confirmation_required is False
+    assert analysis.draft_is_provisional is False
     assert db_session.scalar(select(func.count()).select_from(AIAnalysis)) == 1

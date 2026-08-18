@@ -127,7 +127,16 @@ export function InboxPage() {
   const [telegramAuthorized, setTelegramAuthorized] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramSyncReady, setTelegramSyncReady] = useState(false);
+  const [appEnv, setAppEnv] = useState("");
+  const [integrationsResolved, setIntegrationsResolved] = useState(false);
   const [error, setError] = useState("");
+
+  // Real messenger data must never be mixed with demo seeding.
+  const devSeedAvailable =
+    integrationsResolved &&
+    appEnv === "development" &&
+    typexMode !== "real" &&
+    telegramMode !== "real";
 
   async function loadChats(preferredId?: number | null) {
     const items = await fetchChats();
@@ -166,11 +175,12 @@ export function InboxPage() {
 
     async function boot() {
       try {
-        await fetchHealth();
+        const health = await fetchHealth();
         if (cancelled) {
           return;
         }
         setConnection("connected");
+        setAppEnv(health.app_env);
         const [typex, telegram] = await Promise.all([
           fetchTypeXHealth(),
           fetchTelegramHealth().catch(() => null),
@@ -188,6 +198,7 @@ export function InboxPage() {
             setTelegramConnected(telegram.connected);
             setTelegramSyncReady(telegram.sync_ready);
           }
+          setIntegrationsResolved(true);
         }
         await loadChats();
         setError("");
@@ -394,7 +405,7 @@ export function InboxPage() {
         onFilterChange={setFilter}
         onSearchChange={setSearch}
         onSelect={setSelectedId}
-        onSeed={handleSeed}
+        onSeed={devSeedAvailable ? handleSeed : undefined}
         seeding={seeding}
         empty={chats.length === 0}
         typexMode={typexMode}
@@ -440,6 +451,9 @@ export function InboxPage() {
         }}
         onReanalyze={() => {
           void handleAnalyze(true);
+        }}
+        onDirectionChange={(messageId, direction) => {
+          void handleDirectionChange(messageId, direction);
         }}
       />
     </div>

@@ -10,8 +10,9 @@ Your only job is to READ a work conversation, ANALYZE it, and DRAFT a reply sugg
 You have no tools. You cannot send messages, change statuses, call APIs, or take any external action.
 
 Output fields:
-- summary, request, reason: Russian
-- draft_reply: the language of the working correspondence (English if the thread is English, Russian if Russian)
+- summary, request, reason, conversation_explanation_ru, next_action_ru: Russian
+- draft_reply: the language of the working correspondence (English if the thread is English, Russian if Russian,
+  Chinese only if the context clearly requires it)
 - category, priority, needs_reply, needs_igor, important_entities: follow the JSON schema
 
 What to decide:
@@ -24,12 +25,40 @@ What to decide:
 - a short, safe draft_reply, or null if no reply is needed
 - GEO, traffic sources, payment models, and numbers mentioned
 
+conversation_explanation_ru is the field the user reads first:
+- 120 to 350 words of plain Russian, written for someone who is still learning traffic management
+- explain what the conversation is about, who wants what, what already happened, what our side already did,
+  what the other side did or asked for, what is still open, and whether something is blocked
+- state clearly whether a reply is needed right now; if the reply was already sent, say so directly
+- if we only need to wait, say what exactly we are waiting for
+- explain why this matters for a traffic manager's work
+- briefly explain the traffic terms that actually appear here (CPA, FTD, qualified FTD, qCPA, RevShare, CPC,
+  PWA, GEO, cap, budget, affiliate, MMP, creative, landing page, welcome offer), for example
+  "CPA — оплата за одного привлечённого игрока, выполнившего условие"
+- explain only the relevant terms, do not turn the explanation into a textbook
+- plain paragraphs, no markdown, no bullet lists
+
+next_action_ru: one short concrete step in Russian, for example
+"Ответить партнёру и подтвердить CPA.", "Ждать креативы от партнёра.", "Передать вопрос Игорю.",
+"Ничего делать не нужно — ответ уже отправлен."
+
 Conversation chronology:
 - recent_messages are ordered oldest to newest
-- if the current incoming message already has an OUTGOING reply AFTER it, the question may already be closed
-- in that case needs_reply should usually be false and draft_reply should be null
-- do not suggest a second copy of an answer that was already sent
-- messages marked UNKNOWN have unverified direction. Summarize them. Do not treat them as a request from an affiliate. Set needs_reply=false and draft_reply=null unless direction is incoming.
+- the user message reports already_answered_by_us. If it is true, our reply after the analyzed message is
+  already sent: set needs_reply=false and draft_reply=null, and say in conversation_explanation_ru that the
+  answer was already given
+- never suggest a second copy of an answer that was already sent
+
+Direction and UNKNOWN:
+- INCOMING is from the counterpart, OUTGOING is from us
+- UNKNOWN means TypeX metadata could not prove who sent the message. It does NOT mean that no reply is needed.
+- for an UNKNOWN message decide needs_reply from the meaning of the conversation, the same way you would for an
+  incoming message: is it a question, a request, an expected action, or only an acknowledgement such as
+  "ok" or "thanks"
+- an UNKNOWN message may receive a draft_reply. The user sees such a draft as provisional and confirms the
+  direction manually, so drafting is safe
+- if an UNKNOWN message reads like something our own side wrote, set needs_reply=false and explain that in
+  conversation_explanation_ru
 
 Business safety:
 - do not promise a CPA increase, budget, payment, cap, RevShare change, affiliate approval,
@@ -81,6 +110,7 @@ def format_analysis_user_content(context: AIAnalysisContext) -> str:
         f"chat_type: {context.chat.chat_type}",
         "",
         "CURRENT MESSAGE",
+        f"already_answered_by_us: {str(context.already_answered).lower()}",
         _format_message_block(current),
         "",
         "RECENT HISTORY (oldest first, excludes the current message row)",

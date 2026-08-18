@@ -1,4 +1,4 @@
-import type { AIAnalysis, ImportantEntities } from "../types/inbox";
+import type { AIAnalysis, ImportantEntities, MessageDirection, Priority } from "../types/inbox";
 
 type AIAnalysisPanelProps = {
   analysis: AIAnalysis | null;
@@ -9,6 +9,14 @@ type AIAnalysisPanelProps = {
   directionConfirmationRequired?: boolean;
   onAnalyze: () => void;
   onReanalyze: () => void;
+  onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
+};
+
+const PRIORITY_LABELS: Record<Priority, string> = {
+  urgent: "Срочно",
+  high: "Высокий",
+  normal: "Обычный",
+  low: "Низкий",
 };
 
 function entityLines(entities: ImportantEntities | null): { label: string; values: string[] }[] {
@@ -17,9 +25,9 @@ function entityLines(entities: ImportantEntities | null): { label: string; value
   }
   return [
     { label: "GEO", values: entities.geo },
-    { label: "Traffic source", values: entities.traffic_source },
-    { label: "Payment model", values: entities.payment_model },
-    { label: "Numbers", values: entities.numbers },
+    { label: "Источник трафика", values: entities.traffic_source },
+    { label: "Модель оплаты", values: entities.payment_model },
+    { label: "Цифры", values: entities.numbers },
   ].filter((item) => item.values.length > 0);
 }
 
@@ -32,6 +40,7 @@ export function AIAnalysisPanel({
   directionConfirmationRequired = false,
   onAnalyze,
   onReanalyze,
+  onDirectionChange,
 }: AIAnalysisPanelProps) {
   async function copyDraft() {
     if (!analysis?.draft_reply) {
@@ -40,88 +49,137 @@ export function AIAnalysisPanel({
     await navigator.clipboard.writeText(analysis.draft_reply);
   }
 
+  const unconfirmed = analysis?.direction_confirmation_required ?? directionConfirmationRequired;
+  const entities = entityLines(analysis?.important_entities ?? null);
+
   return (
     <aside className="ai-panel">
       <div className="ai-panel__header">
-        <h2>AI Analysis</h2>
+        <h2>AI Assistant</h2>
         {analysis ? (
           <button type="button" className="ghost-button" onClick={onReanalyze} disabled={analyzing}>
             {analyzing ? "Analyzing..." : "Re-analyze"}
           </button>
         ) : (
-          <button type="button" className="ghost-button" onClick={onAnalyze} disabled={analyzing || loading}>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={onAnalyze}
+            disabled={analyzing || loading}
+          >
             {analyzing ? "Analyzing..." : "Analyze"}
           </button>
         )}
       </div>
-      {analysis?.provider ? (
-        <p className="ai-panel__meta">
-          AI: {analysis.provider === "openrouter" ? "OpenRouter" : analysis.provider}
-          {analysis.model ? ` · Model: ${analysis.model}` : ""}
-        </p>
+
+      {analysis ? (
+        <div className="ai-panel__tags">
+          <span className={`priority-tag priority-tag--${analysis.priority}`}>
+            {PRIORITY_LABELS[analysis.priority]}
+          </span>
+          <span
+            className={`reply-tag ${analysis.needs_reply ? "reply-tag--needed" : "reply-tag--none"}`}
+          >
+            {analysis.needs_reply ? "Нужен ответ" : "Ответ не требуется"}
+          </span>
+          {analysis.needs_igor ? <span className="reply-tag reply-tag--igor">Решает Игорь</span> : null}
+        </div>
       ) : null}
 
-      {directionConfirmationRequired ? (
-        <p className="ai-panel__note">Direction confirmation required before reply drafting.</p>
-      ) : null}
       {note ? <p className="ai-panel__note">{note}</p> : null}
-
       {loading ? <p className="ai-panel__note">Loading analysis…</p> : null}
       {analyzing && !loading ? <p className="ai-panel__note">Analyzing...</p> : null}
       {error ? <p className="ai-panel__error">{error}</p> : null}
 
       {!loading && !analysis && !error && !note ? (
-        <p className="ai-panel__note">No analysis yet. Run Analyze to generate a draft.</p>
+        <p className="ai-panel__note">
+          Разбор ещё не сделан. Нажмите Analyze, чтобы получить объяснение и черновик ответа.
+        </p>
       ) : null}
 
       {analysis ? (
-        <>
-          <section>
-            <h3>Summary</h3>
-            <p>{analysis.summary}</p>
+        <div className="ai-panel__sections">
+          <section className="ai-card">
+            <h3>Разбор переписки</h3>
+            <p className="ai-card__text">{analysis.conversation_explanation_ru || analysis.summary}</p>
           </section>
-          <section>
-            <h3>What they want</h3>
-            <p>{analysis.request}</p>
+
+          <section className="ai-card">
+            <h3>Что от нас хотят</h3>
+            <p className="ai-card__text">{analysis.request}</p>
           </section>
-          <section>
-            <h3>Priority</h3>
-            <p className={`priority-tag priority-tag--${analysis.priority}`}>
-              {analysis.priority.toUpperCase()}
-            </p>
+
+          <section className="ai-card">
+            <h3>Что делать дальше</h3>
+            <p className="ai-card__text">{analysis.next_action_ru || analysis.reason}</p>
           </section>
-          <section>
-            <h3>Recommended action</h3>
-            <p>{analysis.reason}</p>
-          </section>
-          <section>
-            <h3>Flags</h3>
-            <p>
-              Needs reply: {analysis.needs_reply ? "yes" : "no"}
-              <br />
-              Needs Igor: {analysis.needs_igor ? "yes" : "no"}
-            </p>
-          </section>
-          {entityLines(analysis.important_entities).map((item) => (
-            <section key={item.label}>
-              <h3>{item.label}</h3>
-              <p>{item.values.join(", ")}</p>
+
+          {entities.length > 0 ? (
+            <section className="ai-card">
+              <h3>Важные детали</h3>
+              <dl className="ai-facts">
+                {entities.map((item) => (
+                  <div className="ai-facts__row" key={item.label}>
+                    <dt>{item.label}</dt>
+                    <dd>{item.values.join(", ")}</dd>
+                  </div>
+                ))}
+              </dl>
             </section>
-          ))}
-          <section>
-            <h3>Draft reply</h3>
+          ) : null}
+
+          <section className="ai-card">
+            <h3>Ответ</h3>
+            {analysis.draft_is_provisional ? (
+              <p className="ai-warning">
+                Направление сообщения не подтверждено. Ответ сгенерирован как предварительный.
+              </p>
+            ) : null}
             {analysis.draft_reply ? (
               <>
                 <pre className="draft-reply">{analysis.draft_reply}</pre>
                 <button type="button" className="primary-button" onClick={() => void copyDraft()}>
-                  Copy reply
+                  Скопировать ответ
                 </button>
               </>
             ) : (
-              <p className="ai-panel__note">No reply suggested.</p>
+              <>
+                <p className="ai-card__text">
+                  {analysis.needs_reply
+                    ? "Черновик не сгенерирован — сформулируйте ответ вручную."
+                    : "Ответ сейчас не требуется."}
+                </p>
+                <p className="ai-panel__note">{analysis.reason}</p>
+              </>
             )}
+            {unconfirmed && onDirectionChange ? (
+              <div className="ai-card__actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDirectionChange(analysis.message_id, "incoming")}
+                >
+                  From contact
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onDirectionChange(analysis.message_id, "outgoing")}
+                >
+                  From us
+                </button>
+              </div>
+            ) : null}
           </section>
-        </>
+
+          {analysis.provider ? (
+            <p className="ai-panel__meta">
+              {analysis.provider === "openrouter" ? "OpenRouter" : analysis.provider}
+              {analysis.model ? ` · ${analysis.model}` : ""}
+              {unconfirmed ? " · direction unconfirmed" : ""}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </aside>
   );

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.database.types import UTCDateTime, str_enum
-from app.enums import AnalysisCategory, Priority
+from app.enums import AnalysisCategory, MessageDirection, Priority
 from app.time_utils import utc_now
 
 
@@ -25,6 +25,8 @@ class AIAnalysis(Base):
     needs_reply: Mapped[bool] = mapped_column(Boolean)
     needs_igor: Mapped[bool] = mapped_column(Boolean)
     reason: Mapped[str] = mapped_column(Text)
+    conversation_explanation_ru: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_action_ru: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     important_entities: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -37,3 +39,12 @@ class AIAnalysis(Base):
     )
 
     message: Mapped["Message"] = relationship(back_populates="analysis")
+
+    @property
+    def direction_confirmation_required(self) -> bool:
+        """UNKNOWN direction means we cannot prove who sent the analyzed message."""
+        return self.message is not None and self.message.direction == MessageDirection.UNKNOWN
+
+    @property
+    def draft_is_provisional(self) -> bool:
+        return bool(self.draft_reply) and self.direction_confirmation_required

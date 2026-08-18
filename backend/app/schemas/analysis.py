@@ -20,6 +20,8 @@ class ImportantEntities(BaseModel):
 class AIAnalysisResult(BaseModel):
     summary: str
     request: str
+    conversation_explanation_ru: str = ""
+    next_action_ru: str = ""
     category: AnalysisCategory
     priority: Priority
     needs_reply: bool
@@ -36,6 +38,7 @@ class AIAnalysisContext(BaseModel):
     contact: ContactRead | None = None
     company: CompanyRead | None = None
     knowledge_entries: list[KnowledgeEntryRead] = Field(default_factory=list)
+    already_answered: bool = False
 
 
 class AIAnalysisCreate(BaseModel):
@@ -60,6 +63,8 @@ class AIAnalysisRead(BaseModel):
     message_id: int
     summary: str
     request: str
+    conversation_explanation_ru: str | None = None
+    next_action_ru: str | None = None
     category: AnalysisCategory
     priority: Priority
     needs_reply: bool
@@ -67,6 +72,8 @@ class AIAnalysisRead(BaseModel):
     reason: str
     draft_reply: str | None
     important_entities: ImportantEntities | None = None
+    direction_confirmation_required: bool = False
+    draft_is_provisional: bool = False
     provider: str | None
     model: str | None
     created_at: datetime

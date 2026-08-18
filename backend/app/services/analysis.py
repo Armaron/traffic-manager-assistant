@@ -5,7 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.provider import AIProvider
-from app.enums import MessageDirection
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.analysis import AIAnalysisResult
 from app.schemas.inbox import AnalyzeAllResult
@@ -14,6 +13,9 @@ from app.services.inbox import analysis_target_message
 from app.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
+
+ALREADY_ANSWERED_REASON = "Ответ после этого сообщения уже отправлен, повторный ответ не нужен."
+ALREADY_ANSWERED_NEXT_ACTION = "Ничего делать не нужно — ответ уже отправлен."
 
 
 class AIAnalysisService:
@@ -55,8 +57,8 @@ class AIAnalysisService:
         try:
             context = build_analysis_context(self.session, message_id)
             result = await self.provider.analyze_message(context)
-            if message.direction == MessageDirection.UNKNOWN:
-                result = _conservative_unknown_result(result)
+            if context.already_answered:
+                result = _already_answered_result(result)
             row = existing or AIAnalysis(message_id=message_id)
             self._apply_result(row, result)
             if existing is None:
@@ -93,6 +95,8 @@ class AIAnalysisService:
         row.needs_igor = result.needs_igor
         row.reason = result.reason
         row.draft_reply = result.draft_reply
+        row.conversation_explanation_ru = result.conversation_explanation_ru or None
+        row.next_action_ru = result.next_action_ru or None
         row.important_entities = result.important_entities.model_dump()
         row.provider = self.provider.name
         row.model = getattr(self.provider, "resolved_model", None) or getattr(
@@ -101,17 +105,17 @@ class AIAnalysisService:
         row.updated_at = utc_now()
 
 
-def _conservative_unknown_result(result: AIAnalysisResult) -> AIAnalysisResult:
-    """UNKNOWN direction: summary is allowed, reply drafting is not."""
+def _already_answered_result(result: AIAnalysisResult) -> AIAnalysisResult:
+    """Our outgoing message after the target closes it, whatever the provider suggested."""
     reason = (result.reason or "").strip()
-    note = "Direction confirmation required before reply drafting."
-    if note not in reason:
-        reason = f"{reason} {note}".strip() if reason else note
+    if ALREADY_ANSWERED_REASON not in reason:
+        reason = f"{reason} {ALREADY_ANSWERED_REASON}".strip() if reason else ALREADY_ANSWERED_REASON
     return result.model_copy(
         update={
             "needs_reply": False,
             "draft_reply": None,
             "reason": reason,
+            "next_action_ru": ALREADY_ANSWERED_NEXT_ACTION,
         }
     )
 

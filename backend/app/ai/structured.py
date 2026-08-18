@@ -18,6 +18,8 @@ def analysis_result_json_schema() -> dict[str, Any]:
         "properties": {
             "summary": {"type": "string"},
             "request": {"type": "string"},
+            "conversation_explanation_ru": {"type": "string"},
+            "next_action_ru": {"type": "string"},
             "category": {
                 "type": "string",
                 "enum": [item.value for item in AnalysisCategory],
