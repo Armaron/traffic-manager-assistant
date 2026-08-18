@@ -17,6 +17,7 @@ from app.integrations.typex_errors import (
 )
 from app.integrations.typex_discover import possible_chat_tools, possible_message_tools, suggest_binding
 from app.integrations.typex_mapping import map_chat, map_message, map_sender
+from app.integrations.typex_resolver import typex_conversation_key
 from app.integrations.typex_policy import diagnostic_kind, is_write_tool
 from tests.typex_helpers import (
     TEST_ARCHIVE_TOOL,
@@ -688,8 +689,8 @@ def test_real_typex_bindings_construct_scoped_arguments() -> None:
         current_user_tool=TYPEX_GET_ME.name,
     )
     chats = asyncio.run(adapter.get_chats())
-    messages = asyncio.run(adapter.get_messages("feed-opaque-1"))
-    assert chats[0].external_id == "feed-opaque-1"
+    messages = asyncio.run(adapter.get_messages(chats[0].external_id))
+    assert chats[0].external_id == typex_conversation_key(ChatType.DIRECT, "Affiliate John")
     assert chats[0].name == "Affiliate John"
     assert messages[0].chat_name == "Affiliate John"
     assert calls[TYPEX_LIST_FOLDER_FEEDS.name][0] == {"all_chats": True, "limit": 20}
@@ -822,4 +823,47 @@ def test_adapter_keeps_unknown_direction_and_does_not_send() -> None:
     assert adapter.last_messages_seen == 2
     assert adapter.last_messages_skipped == 0
     assert adapter.last_messages_unknown_direction == 1
+    assert TYPEX_SEND_MESSAGE.name not in calls
+
+
+def test_adapter_marks_exact_self_send_name_outgoing() -> None:
+    calls: dict[str, list[dict]] = {}
+    handler = session_handler(
+        [TYPEX_LIST_FOLDER_FEEDS, TYPEX_SEARCH_CHAT_RECORDS, TYPEX_GET_ME, TYPEX_SEND_MESSAGE],
+        calls=calls,
+        call_results={
+            TYPEX_LIST_FOLDER_FEEDS.name: [
+                {"opaque_ref": "feed-self-1", "name": "Affiliate John", "type": "direct"}
+            ],
+            TYPEX_SEARCH_CHAT_RECORDS.name: [
+                {
+                    "message_ref": "mine",
+                    "send_name": "Operator",
+                    "content": "hello",
+                    "send_time": "2026-08-17T10:00:00Z",
+                },
+                {
+                    "message_ref": "theirs",
+                    "send_name": "John",
+                    "content": "hi",
+                    "send_time": "2026-08-17T10:01:00Z",
+                },
+            ],
+            TYPEX_GET_ME.name: {"id": "acct-1", "name": "Operator"},
+        },
+    )
+    adapter = typex_adapter(
+        handler,
+        chats_tool=TYPEX_LIST_FOLDER_FEEDS.name,
+        messages_tool=TYPEX_SEARCH_CHAT_RECORDS.name,
+        current_user_tool=TYPEX_GET_ME.name,
+    )
+    chats = asyncio.run(adapter.get_chats())
+    messages = asyncio.run(adapter.get_messages(chats[0].external_id))
+    assert chats[0].external_id == typex_conversation_key(ChatType.DIRECT, "Affiliate John")
+    assert [item.external_id for item in messages] == ["mine", "theirs"]
+    assert messages[0].direction is MessageDirection.OUTGOING
+    assert messages[0].direction_source.value == "profile_name"
+    assert messages[1].direction is MessageDirection.UNKNOWN
+    assert calls[TYPEX_SEARCH_CHAT_RECORDS.name][0] == {"opaque_ref": "feed-self-1", "limit": 50}
     assert TYPEX_SEND_MESSAGE.name not in calls

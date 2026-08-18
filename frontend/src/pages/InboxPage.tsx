@@ -25,6 +25,7 @@ import type {
   ConversationStatus,
   InboxFilter,
   MessageDirection,
+  TypeXSyncResult,
 } from "../types/inbox";
 
 type ConnectionState = "checking" | "connected" | "disconnected";
@@ -86,6 +87,17 @@ function latestActionableMessage(messages: ChatMessage[]): ChatMessage | undefin
     }
   }
   return undefined;
+}
+
+function typexSyncNote(result: TypeXSyncResult): string {
+  const parts = [`${result.messages_created} new TypeX messages`];
+  if (result.files_saved) {
+    parts.push(`${result.files_saved} files saved`);
+  }
+  if (result.media_without_file) {
+    parts.push(`${result.media_without_file} media not downloadable from TypeX`);
+  }
+  return parts.join(", ");
 }
 
 export function InboxPage() {
@@ -267,7 +279,7 @@ export function InboxPage() {
       setTypexConfigured(typex.configured);
       setTypexSyncReady(typex.sync_ready);
       setTypexSyncMode(typex.sync_mode);
-      setSyncNote(`${result.messages_created} new TypeX messages`);
+      setSyncNote(typexSyncNote(result));
       setError("");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "TypeX MCP unavailable";

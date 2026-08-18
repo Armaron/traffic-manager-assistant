@@ -63,6 +63,7 @@ LIST_KEYS = (
     "folder_feeds",
     "mentions",
     "candidates",
+    "files",
 )
 
 

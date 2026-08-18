@@ -1,15 +1,26 @@
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.enums import ConversationStatus, MessageDirection
+from app.enums import AttachmentKind, ConversationStatus, MessageDirection
+from app.media_placeholder import detect_media_placeholder
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.inbox import ChatSummary
 from app.time_utils import utc_now
 
 ACTIONABLE_DIRECTIONS = (MessageDirection.INCOMING, MessageDirection.UNKNOWN)
+MEDIA_PREVIEW_LABELS = {
+    AttachmentKind.IMAGE: "[Image]",
+    AttachmentKind.MIXED: "[Image]",
+    AttachmentKind.VOICE: "[Voice]",
+    AttachmentKind.FILE: "[File]",
+}
 
 
 def message_preview(text: str, limit: int = 72) -> str:
+    placeholder = detect_media_placeholder(text)
+    if placeholder is not None:
+        label = MEDIA_PREVIEW_LABELS[placeholder.kind]
+        text = f"{label} {placeholder.caption}" if placeholder.caption else label
     collapsed = " ".join(text.split())
     if len(collapsed) <= limit:
         return collapsed
@@ -104,6 +115,7 @@ def list_messages(session: Session, chat_id: int) -> list[Message]:
     return list(
         session.scalars(
             select(Message)
+            .options(selectinload(Message.attachments))
             .where(Message.chat_id == chat_id)
             .order_by(Message.timestamp.asc(), Message.id.asc())
         ).all()

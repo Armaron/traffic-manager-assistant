@@ -2,7 +2,7 @@
 
 Namespaces are never mixed: id↔id, uid↔uid, typex_id↔typex_id.
 Unresolved direction is UNKNOWN — never default to incoming.
-Display-name fallback is not implemented: send_name semantics are undocumented.
+Exact get_me / TYPEX_SELF_DISPLAY_NAME match may mark outgoing. Never infers incoming.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ class TypeXDirectionContext:
     current_user: TypeXIdentity
     counterpart: TypeXIdentity | None = None
     current_user_exact_name: str | None = None
+    current_user_exact_names: tuple[str, ...] = ()
     counterpart_exact_name: str | None = None
 
 
@@ -122,7 +123,7 @@ def resolve_typex_direction(record: dict[str, Any], context: TypeXDirectionConte
         return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.NATIVE)
     sender = identity_from_record(record)
     if sender.is_empty():
-        return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
+        return _direction_from_profile_name(record, context)
     if sender.matches(context.current_user):
         return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.STABLE_ID)
     if context.chat_type == ChatType.DIRECT and sender.matches(context.counterpart):
@@ -130,6 +131,26 @@ def resolve_typex_direction(record: dict[str, Any], context: TypeXDirectionConte
     if not sender.is_empty() and not context.current_user.is_empty():
         if _same_namespace_comparable(sender, context.current_user):
             return TypeXDirectionResult(MessageDirection.INCOMING, DirectionSource.STABLE_ID)
+    return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
+
+
+def _direction_from_profile_name(
+    record: dict[str, Any],
+    context: TypeXDirectionContext,
+) -> TypeXDirectionResult:
+    """Exact get_me / configured self display name only. Never infers incoming."""
+    from app.integrations.typex_resolver import normalize_display_name
+
+    send_name = normalize_display_name(
+        record.get("send_name") or record.get("sender_name") or record.get("from_name")
+    )
+    self_names = {
+        name
+        for value in (context.current_user_exact_name, *context.current_user_exact_names)
+        if (name := normalize_display_name(value))
+    }
+    if send_name and send_name in self_names:
+        return TypeXDirectionResult(MessageDirection.OUTGOING, DirectionSource.PROFILE_NAME)
     return TypeXDirectionResult(MessageDirection.UNKNOWN, DirectionSource.UNKNOWN)
 
 

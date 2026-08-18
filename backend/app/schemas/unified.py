@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.enums import ChatType, DirectionSource, MessageDirection, Platform
+from app.enums import AttachmentKind, ChatType, DirectionSource, MessageDirection, Platform
 
 
 class UnifiedSender(BaseModel):
@@ -16,6 +16,16 @@ class UnifiedChat(BaseModel):
     external_id: str
     name: str
     chat_type: ChatType = ChatType.UNKNOWN
+
+
+class UnifiedAttachment(BaseModel):
+    file_ref: str
+    filename: str
+    kind: AttachmentKind = AttachmentKind.FILE
+    message_external_id: str | None = None
+    content_type: str | None = None
+    storage_key: str | None = None
+    byte_size: int | None = None
 
 
 class UnifiedMessage(BaseModel):
@@ -32,6 +42,7 @@ class UnifiedMessage(BaseModel):
     is_outgoing: bool = False  # legacy: True only when direction=outgoing
     attach_contact: bool = True
     raw_data: dict[str, object] | None = Field(default=None)
+    attachments: list[UnifiedAttachment] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _sync_direction(self) -> "UnifiedMessage":

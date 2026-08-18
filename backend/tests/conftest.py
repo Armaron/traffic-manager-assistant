@@ -18,6 +18,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB.resolve().as_posix()}"
 os.environ["AI_PROVIDER"] = "mock"
 os.environ["TYPEX_MODE"] = "mock"
 os.environ["TELEGRAM_MODE"] = "mock"
+os.environ["TYPEX_SELF_DISPLAY_NAME"] = ""
 
 import pytest
 
@@ -26,7 +27,7 @@ from fastapi.testclient import TestClient
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
-from app.models import AIAnalysis, Chat, Company, Contact, KnowledgeEntry, Message  # noqa: F401
+from app.models import AIAnalysis, Chat, Company, Contact, KnowledgeEntry, Message, MessageAttachment  # noqa: F401
 
 
 @pytest.fixture()

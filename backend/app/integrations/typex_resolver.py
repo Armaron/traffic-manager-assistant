@@ -7,9 +7,11 @@ truncated, and type-mismatched results are rejected. Display names are never IDs
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from app.enums import ChatType
@@ -24,6 +26,8 @@ logger = logging.getLogger(__name__)
 ResolverMode = Literal["contact", "group"]
 
 CONVERSATION_RESOLVER_TOOL = "typex.search_contact"
+CONVERSATION_KEY_PREFIX = "txc"
+MESSAGE_KEY_PREFIX = "txm"
 STABLE_HANDLE_KEYS = ("opaque_ref", "chat_ref", "group_ref", "feed_ref", "feed_id")
 SINGLE_CHAT_LABELS = frozenset({"single chat"})
 GROUP_CHAT_LABELS = frozenset({"group chat"})
@@ -48,6 +52,48 @@ def normalize_display_name(value: Any) -> str | None:
         return None
     normalized = unicodedata.normalize("NFC", value).strip()
     return normalized or None
+
+
+def typex_conversation_key(chat_type: ChatType, name: str | None) -> str | None:
+    """Stable local chat id. opaque_ref is only a per-session MCP handle."""
+    normalized = normalize_display_name(name)
+    if not normalized:
+        return None
+    key = f"{CONVERSATION_KEY_PREFIX}:{chat_type.value}:{normalized}"
+    if normalize_display_name(key) == normalized:
+        return None
+    return key
+
+
+def typex_message_fingerprint(
+    timestamp: datetime | None,
+    sender_name: str | None,
+    text: str | None,
+) -> tuple[str, str, str] | None:
+    """Exact local duplicate key. message_ref is only a per-session MCP handle."""
+    if timestamp is None or not isinstance(text, str):
+        return None
+    body = unicodedata.normalize("NFC", text).strip()
+    if not body:
+        return None
+    if timestamp.tzinfo is None:
+        ts = timestamp.replace(tzinfo=timezone.utc)
+    else:
+        ts = timestamp.astimezone(timezone.utc)
+    sender = normalize_display_name(sender_name) or ""
+    return (ts.isoformat(), sender, body)
+
+
+def typex_message_key(
+    timestamp: datetime | None,
+    sender_name: str | None,
+    text: str | None,
+) -> str | None:
+    fingerprint = typex_message_fingerprint(timestamp, sender_name, text)
+    if fingerprint is None:
+        return None
+    digest = hashlib.sha256("\0".join(fingerprint).encode("utf-8")).hexdigest()[:24]
+    return f"{MESSAGE_KEY_PREFIX}:{digest}"
 
 
 def resolver_mode_for_feed(feed: dict[str, Any]) -> ResolverMode | None:

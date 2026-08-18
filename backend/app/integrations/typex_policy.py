@@ -88,6 +88,9 @@ LIMIT_FIELDS = ("limit", "page_size", "pageSize", "count", "max_results", "size"
 SENDER_ID_FIELDS = ("user_id", "sender_id", "id", "uid")
 ACCOUNT_WIDE_QUERY_FIELDS = ("query", "keyword", "q", "contact_name")
 
+LOCAL_SAVE_TOOL_NAMES = frozenset({"typex.download_chat_file"})
+FILES_LIST_TOOL_NAMES = frozenset({"typex.list_chat_downloadable_files"})
+
 DiagnosticKind = Literal["read", "write", "unknown"]
 
 
@@ -116,8 +119,29 @@ def configured_read_tool_names(settings: Settings) -> set[str]:
         settings.typex_messages_tool,
         settings.typex_current_user_tool,
         settings.typex_sender_tool,
+        settings.typex_files_list_tool,
     )
     return {item for item in (clean_tool_name(name) for name in names) if item}
+
+
+def configured_local_save_tool_names(settings: Settings) -> set[str]:
+    name = clean_tool_name(settings.typex_file_save_tool)
+    if name is None or name not in LOCAL_SAVE_TOOL_NAMES:
+        return set()
+    return {name}
+
+
+def is_allowed_local_save_tool(tool: MCPTool) -> bool:
+    """Save-as to a local path. Never send or upload."""
+    if tool.name not in LOCAL_SAVE_TOOL_NAMES:
+        return False
+    blob = _normalized_tool_name(tool.name)
+    if "upload" in blob or "send" in blob:
+        return False
+    fields = set(input_field_names(tool))
+    if "save_path" not in fields:
+        return False
+    return conversation_scope_field(tool) is not None
 
 
 def missing_required_tool_bindings(settings: Settings) -> list[str]:
@@ -139,7 +163,15 @@ def _short_tool_name(name: str) -> str:
 
 def _name_has_write_marker(name: str) -> bool:
     blob = _normalized_tool_name(name)
-    return any(marker in blob for marker in WRITE_MARKERS)
+    short = _short_tool_name(name)
+    looks_read = any(short == prefix or short.startswith(f"{prefix}_") for prefix in _READ_NAME_PREFIXES)
+    for marker in WRITE_MARKERS:
+        if marker not in blob:
+            continue
+        if looks_read and marker == "download":
+            continue
+        return True
+    return False
 
 
 def _blob_has_write_marker(tool: MCPTool) -> bool:

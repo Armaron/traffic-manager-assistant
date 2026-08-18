@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from app.enums import DirectionSource, MessageDirection
+from app.enums import AttachmentKind, DirectionSource, MessageDirection
+from app.media_placeholder import detect_media_placeholder
 
 
 class MessageCreate(BaseModel):
@@ -17,6 +18,28 @@ class MessageCreate(BaseModel):
     direction_source: DirectionSource | None = None
     is_outgoing: bool = False
     raw_data: dict[str, object] | None = None
+
+
+class AttachmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    message_id: int
+    kind: AttachmentKind
+    filename: str
+    content_type: str | None = None
+    byte_size: int | None = None
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        return f"/api/messages/{self.message_id}/attachments/{self.id}/file"
+
+
+class MediaPlaceholderRead(BaseModel):
+    kind: AttachmentKind
+    count: int = 1
+    caption: str | None = None
 
 
 class MessageRead(BaseModel):
@@ -35,6 +58,19 @@ class MessageRead(BaseModel):
     is_outgoing: bool
     created_at: datetime
     raw_data: dict[str, object] | None = Field(default=None)
+    attachments: list[AttachmentRead] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def media_placeholder(self) -> MediaPlaceholderRead | None:
+        placeholder = detect_media_placeholder(self.text)
+        if placeholder is None:
+            return None
+        return MediaPlaceholderRead(
+            kind=placeholder.kind,
+            count=placeholder.count,
+            caption=placeholder.caption,
+        )
 
     @model_validator(mode="after")
     def _sync_direction(self) -> "MessageRead":

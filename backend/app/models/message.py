@@ -49,6 +49,10 @@ class Message(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    attachments: Mapped[list["MessageAttachment"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan",
+    )
 
 
 def _sync_legacy_direction(target: Message) -> None:

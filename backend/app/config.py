@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     typex_messages_tool: str | None = None
     typex_current_user_tool: str | None = None
     typex_sender_tool: str | None = None
+    typex_files_list_tool: str | None = None
+    typex_file_save_tool: str | None = None
+    typex_self_display_name: str | None = None
     telegram_mode: str = "mock"
     telegram_api_id: int | None = None
     telegram_api_hash: str | None = None
@@ -59,9 +62,16 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("telegram_api_hash", "telegram_session_path", mode="before")
+    @field_validator(
+        "telegram_api_hash",
+        "telegram_session_path",
+        "typex_self_display_name",
+        "typex_files_list_tool",
+        "typex_file_save_tool",
+        mode="before",
+    )
     @classmethod
-    def _empty_telegram_str(cls, value: object) -> object:
+    def _empty_optional_str(cls, value: object) -> object:
         if value == "":
             return None
         return value

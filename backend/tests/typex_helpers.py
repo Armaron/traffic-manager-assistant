@@ -150,6 +150,38 @@ TYPEX_SEND_MESSAGE = MCPTool(
         "required": ["opaque_ref", "text"],
     },
 )
+TYPEX_LIST_DOWNLOADABLE_FILES = MCPTool(
+    name="typex.list_chat_downloadable_files",
+    description="List real file/image messages in a chat that can be downloaded.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "opaque_ref": {"type": "string"},
+            "query": {"type": "string"},
+            "from_time": {"type": "string"},
+            "to_time": {"type": "string"},
+            "limit": {"type": "integer"},
+            "response_locale": {"type": "string"},
+        },
+        "required": ["opaque_ref"],
+    },
+)
+TYPEX_DOWNLOAD_CHAT_FILE = MCPTool(
+    name="typex.download_chat_file",
+    description="Download a chat file using Save As.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "opaque_ref": {"type": "string"},
+            "message_ref": {"type": "string"},
+            "file_name": {"type": "string"},
+            "group_index": {"type": "integer"},
+            "file_ref": {"type": "string"},
+            "save_path": {"type": "string"},
+        },
+        "required": ["opaque_ref"],
+    },
+)
 TYPEX_ACCOUNT_WIDE_SEARCH = MCPTool(
     name="typex.search_all_records",
     description="Search messages across the account",
@@ -177,11 +209,16 @@ def tool_json(tool: MCPTool) -> dict:
     return payload
 
 
-def mcp_client(handler: Callable[[httpx.Request], httpx.Response], allowed: set[str] | None = None) -> TypeXMCPClient:
+def mcp_client(
+    handler: Callable[[httpx.Request], httpx.Response],
+    allowed: set[str] | None = None,
+    local_save: set[str] | None = None,
+) -> TypeXMCPClient:
     return TypeXMCPClient(
         "http://127.0.0.1:52222/mcp/",
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         allowed_tool_names=allowed or set(),
+        local_save_tool_names=local_save or set(),
     )
 
 
@@ -229,16 +266,25 @@ def typex_adapter(
     messages_tool: str | None = TEST_MESSAGE_TOOL.name,
     current_user_tool: str | None = TEST_ME_TOOL.name,
     sender_tool: str | None = None,
+    files_list_tool: str | None = None,
+    file_save_tool: str | None = None,
     chat_limit: int = 20,
     message_limit: int = 50,
 ) -> TypeXAdapter:
-    allowed = {name for name in (chats_tool, messages_tool, current_user_tool, sender_tool) if name}
+    allowed = {
+        name
+        for name in (chats_tool, messages_tool, current_user_tool, sender_tool, files_list_tool, file_save_tool)
+        if name
+    }
+    local_save = {file_save_tool} if file_save_tool else set()
     return TypeXAdapter(
-        mcp_client(handler, allowed),
+        mcp_client(handler, allowed, local_save=local_save),
         chats_tool=chats_tool,
         messages_tool=messages_tool,
         current_user_tool=current_user_tool,
         sender_tool=sender_tool,
+        files_list_tool=files_list_tool,
+        file_save_tool=file_save_tool,
         chat_limit=chat_limit,
         message_limit=message_limit,
     )

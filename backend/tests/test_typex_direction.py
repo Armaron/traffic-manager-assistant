@@ -17,16 +17,39 @@ import asyncio
 import pytest
 
 
+from app.enums import ChatType, MessageDirection
+from app.integrations.typex_direction import (
+    TypeXDirectionContext,
+    TypeXIdentity,
+    resolve_typex_direction,
+)
+from app.integrations.typex_errors import TypeXToolUnavailableError
+from app.integrations.typex_mapping import map_chat, map_message
+from tests.typex_helpers import (
+    TEST_CHAT_TOOL,
+    TEST_SEND_TOOL,
+    TYPEX_SEARCH_CONTACT,
+    mcp_client,
+    session_handler,
+)
+import asyncio
+import pytest
+
+
 def _ctx(
     *,
     chat_type: ChatType = ChatType.DIRECT,
     current: TypeXIdentity | None = None,
     counterpart: TypeXIdentity | None = None,
+    current_user_exact_name: str | None = None,
+    current_user_exact_names: tuple[str, ...] = (),
 ) -> TypeXDirectionContext:
     return TypeXDirectionContext(
         chat_type=chat_type,
         current_user=current or TypeXIdentity(),
         counterpart=counterpart,
+        current_user_exact_name=current_user_exact_name,
+        current_user_exact_names=current_user_exact_names,
     )
 
 
@@ -70,6 +93,44 @@ def test_no_sender_identity_unresolved() -> None:
     assert resolve_typex_direction({"send_name": "John", "content": "hello"}, context).direction is MessageDirection.UNKNOWN
 
 
+def test_exact_self_display_name_is_outgoing() -> None:
+    context = _ctx(current_user_exact_name="Igor - Paid Traffic Manager Am")
+    result = resolve_typex_direction(
+        {"send_name": "Igor - Paid Traffic Manager Am", "content": "hello"},
+        context,
+    )
+    assert result.direction is MessageDirection.OUTGOING
+    assert result.source.value == "profile_name"
+
+
+def test_other_display_name_stays_unknown_even_when_self_name_is_known() -> None:
+    context = _ctx(current_user_exact_name="Igor - Paid Traffic Manager Am")
+    result = resolve_typex_direction({"send_name": "John", "content": "hello"}, context)
+    assert result.direction is MessageDirection.UNKNOWN
+    assert result.source.value == "unknown"
+
+
+def test_configured_self_name_matches_when_get_me_name_differs() -> None:
+    context = _ctx(
+        current_user_exact_name="Operator",
+        current_user_exact_names=("Igor - Paid Traffic Manager Am",),
+    )
+    result = resolve_typex_direction(
+        {"send_name": "Igor - Paid Traffic Manager Am", "content": "hello"},
+        context,
+    )
+    assert result.direction is MessageDirection.OUTGOING
+
+
+def test_whitespace_self_display_name_is_outgoing() -> None:
+    context = _ctx(current_user_exact_name="  Igor - Paid Traffic Manager Am  ")
+    result = resolve_typex_direction(
+        {"send_name": "Igor - Paid Traffic Manager Am", "content": "hello"},
+        context,
+    )
+    assert result.direction is MessageDirection.OUTGOING
+
+
 def test_group_without_sender_id_unresolved() -> None:
     context = _ctx(
         chat_type=ChatType.GROUP,
@@ -93,6 +154,7 @@ def test_live_style_record_kept_as_unknown_even_with_current_user_context() -> N
         direction_context=_ctx(
             current=TypeXIdentity(account_id="acct-1", uid="uid-1", typex_id="me-tx"),
             counterpart=TypeXIdentity(typex_id="john-tx"),
+            current_user_exact_name="Operator",
         ),
     )
     assert mapped is not None
@@ -100,6 +162,30 @@ def test_live_style_record_kept_as_unknown_even_with_current_user_context() -> N
     assert mapped.sender_id is None
     assert mapped.sender_name == "John"
     assert mapped.is_outgoing is False
+
+
+def test_live_style_self_send_name_is_outgoing() -> None:
+    chat = map_chat({"opaque_ref": "ref-1", "name": "Affiliate John", "chat_type_label": "single chat"})
+    assert chat is not None
+    mapped = map_message(
+        {
+            "message_ref": "msg-self",
+            "send_name": "Igor - Paid Traffic Manager Am",
+            "send_at": "2026-08-17T10:00:00Z",
+            "content": "hello",
+        },
+        chat=chat,
+        current_user_id="acct-1",
+        direction_context=_ctx(
+            current=TypeXIdentity(account_id="acct-1"),
+            current_user_exact_name="Igor - Paid Traffic Manager Am",
+        ),
+    )
+    assert mapped is not None
+    assert mapped.direction is MessageDirection.OUTGOING
+    assert mapped.direction_source.value == "profile_name"
+    assert mapped.sender_id is None
+    assert mapped.is_outgoing is True
 
 
 def test_internal_read_tool_can_be_called_when_granted() -> None:

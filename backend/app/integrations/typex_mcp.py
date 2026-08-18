@@ -15,7 +15,13 @@ from app.integrations.typex_errors import (
     TypeXToolCallError,
     TypeXToolUnavailableError,
 )
-from app.integrations.typex_policy import MCPTool, configured_read_tool_names, is_write_tool
+from app.integrations.typex_policy import (
+    MCPTool,
+    configured_local_save_tool_names,
+    configured_read_tool_names,
+    is_allowed_local_save_tool,
+    is_write_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,7 @@ class TypeXMCPClient:
         timeout_seconds: float = 15.0,
         client: httpx.AsyncClient | None = None,
         allowed_tool_names: set[str] | None = None,
+        local_save_tool_names: set[str] | None = None,
     ) -> None:
         url = base_url.strip()
         if not url:
@@ -47,15 +54,20 @@ class TypeXMCPClient:
         self._operator_allowlist = {
             name.strip() for name in (allowed_tool_names or set()) if name and name.strip()
         }
+        self._local_save_tools = {
+            name.strip() for name in (local_save_tool_names or set()) if name and name.strip()
+        }
         self._internal_read_tools: set[str] = set()
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> TypeXMCPClient:
         cfg = settings or get_settings()
+        local_save = configured_local_save_tool_names(cfg)
         return cls(
             cfg.typex_mcp_url or DEFAULT_MCP_URL,
             timeout_seconds=cfg.typex_request_timeout_seconds,
-            allowed_tool_names=configured_read_tool_names(cfg),
+            allowed_tool_names=configured_read_tool_names(cfg) | local_save,
+            local_save_tool_names=local_save,
         )
 
     def allow_internal_read_tool(self, name: str) -> None:
@@ -148,8 +160,9 @@ class TypeXMCPClient:
             logger.info("typex_mcp tools_call denied name=%s reason=not_discovered", name)
             raise TypeXToolUnavailableError("TypeX read operation failed")
         if is_write_tool(tool):
-            logger.info("typex_mcp tools_call denied name=%s reason=write_tool", name)
-            raise TypeXToolUnavailableError("TypeX read operation failed")
+            if name not in self._local_save_tools or not is_allowed_local_save_tool(tool):
+                logger.info("typex_mcp tools_call denied name=%s reason=write_tool", name)
+                raise TypeXToolUnavailableError("TypeX read operation failed")
         logger.info("typex_mcp tools_call name=%s", name)
         result = await self._rpc(
             "tools/call",

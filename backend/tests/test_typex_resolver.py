@@ -9,6 +9,7 @@ from app.integrations.typex_resolver import (
     build_resolver_arguments,
     select_exact_handle,
     stable_handle_from_item,
+    typex_conversation_key,
 )
 from tests.typex_helpers import (
     TYPEX_GET_ME,
@@ -32,6 +33,27 @@ GROUP_FEED = {
     "chat_type": 2,
     "chat_type_label": "group chat",
 }
+
+
+def test_conversation_key_is_stable_and_not_the_display_name() -> None:
+    key = typex_conversation_key(ChatType.DIRECT, "Affiliate John")
+    assert key == "txc:direct:Affiliate John"
+    assert key != "Affiliate John"
+
+
+def test_message_key_is_stable_for_same_content() -> None:
+    from datetime import datetime, timezone
+
+    from app.integrations.typex_resolver import typex_message_key
+
+    ts = datetime(2026, 8, 17, 10, tzinfo=timezone.utc)
+    first = typex_message_key(ts, "John", "same body")
+    second = typex_message_key(ts, "John", "same body")
+    other = typex_message_key(ts, "John", "other body")
+    assert first is not None
+    assert first == second
+    assert first != other
+    assert first.startswith("txm:")
 
 
 def test_unique_exact_contact_result_accepted() -> None:
@@ -175,10 +197,10 @@ def test_adapter_resolves_feed_to_opaque_ref_and_scopes_messages() -> None:
     )
     chats = asyncio.run(adapter.get_chats())
     assert len(chats) == 1
-    assert chats[0].external_id == "ref-contact-1"
+    assert chats[0].external_id == typex_conversation_key(ChatType.DIRECT, "Affiliate John")
     assert chats[0].name == "Affiliate John"
     assert chats[0].chat_type == ChatType.DIRECT
-    messages = asyncio.run(adapter.get_messages("ref-contact-1"))
+    messages = asyncio.run(adapter.get_messages(chats[0].external_id))
     assert [item.external_id for item in messages] == ["msg-1"]
     assert calls[TYPEX_SEARCH_CONTACT.name][0] == {
         "name": "Affiliate John",
@@ -235,7 +257,7 @@ def test_adapter_group_feed_uses_search_group_flag() -> None:
         current_user_tool=None,
     )
     chats = asyncio.run(adapter.get_chats())
-    assert chats[0].external_id == "ref-group-1"
+    assert chats[0].external_id == typex_conversation_key(ChatType.GROUP, "Ops Room")
     assert chats[0].chat_type == ChatType.GROUP
     assert calls[TYPEX_SEARCH_CONTACT.name][0]["search_group"] is True
     assert "search_contact" not in calls[TYPEX_SEARCH_CONTACT.name][0]
@@ -345,4 +367,4 @@ def test_search_contact_is_internal_not_operator_allowlist() -> None:
     assert TYPEX_SEARCH_CONTACT.name not in adapter._client.allowed_tool_names
     assert TYPEX_SEARCH_CONTACT.name in adapter._client.internal_read_tool_names
     chats = asyncio.run(adapter.get_chats())
-    assert chats[0].external_id == "ref-1"
+    assert chats[0].external_id == typex_conversation_key(ChatType.DIRECT, "Affiliate John")

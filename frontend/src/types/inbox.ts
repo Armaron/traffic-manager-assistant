@@ -50,7 +50,24 @@ export type ChatDetail = {
 
 export type MessageDirection = "incoming" | "outgoing" | "unknown";
 
-export type DirectionSource = "native" | "stable_id" | "manual" | "unknown";
+export type DirectionSource = "native" | "stable_id" | "profile_name" | "manual" | "unknown";
+
+export type AttachmentKind = "image" | "file" | "voice" | "mixed";
+
+export type MessageAttachment = {
+  id: number;
+  kind: AttachmentKind;
+  filename: string;
+  content_type: string | null;
+  byte_size: number | null;
+  url: string;
+};
+
+export type MediaPlaceholder = {
+  kind: AttachmentKind;
+  count: number;
+  caption: string | null;
+};
 
 export type ChatMessage = {
   id: number;
@@ -65,6 +82,8 @@ export type ChatMessage = {
   direction_source: DirectionSource;
   is_outgoing: boolean;
   created_at: string;
+  attachments?: MessageAttachment[];
+  media_placeholder?: MediaPlaceholder | null;
 };
 
 export type SeedResult = {
@@ -119,6 +138,10 @@ export type TypeXSyncResult = {
   messages_unknown_direction: number;
   messages_incoming: number;
   messages_outgoing: number;
+  files_seen?: number;
+  files_saved?: number;
+  files_skipped?: number;
+  media_without_file?: number;
   contacts_created: number;
 };
 

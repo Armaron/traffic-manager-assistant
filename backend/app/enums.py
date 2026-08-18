@@ -57,8 +57,16 @@ class MessageDirection(StrEnum):
 class DirectionSource(StrEnum):
     NATIVE = "native"
     STABLE_ID = "stable_id"
+    PROFILE_NAME = "profile_name"
     MANUAL = "manual"
     UNKNOWN = "unknown"
+
+
+class AttachmentKind(StrEnum):
+    IMAGE = "image"
+    FILE = "file"
+    VOICE = "voice"
+    MIXED = "mixed"
 
 
 def legacy_is_outgoing(direction: MessageDirection) -> bool:

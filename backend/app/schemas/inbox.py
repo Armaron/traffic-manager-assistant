@@ -65,6 +65,10 @@ class TypeXSyncResult(BaseModel):
     messages_unknown_direction: int = 0
     messages_incoming: int = 0
     messages_outgoing: int = 0
+    files_seen: int = 0
+    files_saved: int = 0
+    files_skipped: int = 0
+    media_without_file: int = 0
     contacts_created: int = 0
 
 

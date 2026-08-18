@@ -1,10 +1,11 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.enums import ChatType, DirectionSource, MessageDirection
-from app.models import Chat, Message
+from app.enums import ChatType, DirectionSource, MessageDirection, Platform
+from app.models import AIAnalysis, Chat, Message, MessageAttachment
 from app.schemas.unified import UnifiedChat, UnifiedMessage
 from app.services.contact_resolution import resolve_contact
+from app.services.typex_chat_identity import find_existing_typex_chat, find_existing_typex_message
 from app.time_utils import utc_now
 
 
@@ -21,7 +22,10 @@ class MessageIngestionService:
                 Chat.external_id == payload.external_id,
             )
         )
+        if chat is None and payload.platform == Platform.TYPEX:
+            chat = find_existing_typex_chat(self.session, payload)
         if chat is not None:
+            chat.external_id = payload.external_id
             chat.name = payload.name
             chat.chat_type = payload.chat_type
             chat.updated_at = utc_now()
@@ -57,13 +61,31 @@ class MessageIngestionService:
                 )
             )
 
-        existing = self.session.scalar(
-            select(Message).where(
-                Message.chat_id == chat.id,
-                Message.external_id == payload.external_id,
+        existing = None
+        if payload.platform == Platform.TYPEX:
+            existing = find_existing_typex_message(self.session, chat, payload)
+        else:
+            existing = self.session.scalar(
+                select(Message).where(
+                    Message.chat_id == chat.id,
+                    Message.external_id == payload.external_id,
+                )
             )
-        )
         if existing is not None:
+            if (
+                existing.direction == MessageDirection.UNKNOWN
+                and payload.direction == MessageDirection.OUTGOING
+            ):
+                existing.direction = MessageDirection.OUTGOING
+                existing.direction_source = payload.direction_source or DirectionSource.PROFILE_NAME
+                existing.is_outgoing = True
+                analysis = self.session.scalar(
+                    select(AIAnalysis).where(AIAnalysis.message_id == existing.id)
+                )
+                if analysis is not None:
+                    self.session.delete(analysis)
+            self.session.flush()
+            self._ingest_attachments(existing, payload)
             return existing, False
 
         direction = payload.direction or MessageDirection.INCOMING
@@ -101,4 +123,29 @@ class MessageIngestionService:
             chat.last_message_at = payload.timestamp
         chat.updated_at = utc_now()
         self.session.flush()
+        self._ingest_attachments(message, payload)
         return message, True
+
+    def _ingest_attachments(self, message: Message, payload: UnifiedMessage) -> None:
+        for item in payload.attachments:
+            if not item.storage_key:
+                continue
+            exists = self.session.scalar(
+                select(MessageAttachment).where(
+                    MessageAttachment.message_id == message.id,
+                    MessageAttachment.storage_key == item.storage_key,
+                )
+            )
+            if exists is not None:
+                continue
+            self.session.add(
+                MessageAttachment(
+                    message_id=message.id,
+                    kind=item.kind,
+                    filename=item.filename,
+                    content_type=item.content_type,
+                    storage_key=item.storage_key,
+                    byte_size=item.byte_size,
+                )
+            )
+        self.session.flush()

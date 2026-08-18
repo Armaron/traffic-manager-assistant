@@ -127,3 +127,61 @@ def build_sender_arguments(tool: MCPTool, sender_id: str) -> dict[str, Any]:
     if missing_unfillable_required(tool, set(args)):
         _deny()
     return args
+
+
+def is_safely_scoped_files_list_tool(tool: MCPTool) -> bool:
+    if is_write_tool(tool):
+        return False
+    return conversation_scope_field(tool) is not None
+
+
+def build_files_list_arguments(tool: MCPTool, conversation_id: str, limit: int) -> dict[str, Any]:
+    if is_write_tool(tool) or not conversation_id:
+        _deny()
+    if not is_safely_scoped_files_list_tool(tool):
+        _deny()
+    scope = conversation_scope_field(tool)
+    if scope is None:
+        _deny()
+    args: dict[str, Any] = {scope: conversation_id}
+    field = limit_field(tool)
+    if field:
+        args[field] = limit
+    if missing_unfillable_required(tool, set(args)):
+        _deny()
+    for unsafe in ACCOUNT_WIDE_QUERY_FIELDS:
+        args.pop(unsafe, None)
+    return args
+
+
+def build_file_save_arguments(
+    tool: MCPTool,
+    conversation_id: str,
+    *,
+    save_path: str,
+    file_ref: str | None = None,
+    file_name: str | None = None,
+    message_ref: str | None = None,
+) -> dict[str, Any]:
+    from app.integrations.typex_policy import is_allowed_local_save_tool
+
+    if not is_allowed_local_save_tool(tool) or not conversation_id or not save_path:
+        _deny()
+    if not file_ref and not message_ref:
+        _deny()
+    scope = conversation_scope_field(tool)
+    if scope is None:
+        _deny()
+    fields = set(input_field_names(tool))
+    args: dict[str, Any] = {scope: conversation_id, "save_path": save_path}
+    if file_ref and "file_ref" in fields:
+        args["file_ref"] = file_ref
+    if message_ref and not file_ref and "message_ref" in fields:
+        args["message_ref"] = message_ref
+    if file_name and "file_name" in fields:
+        args["file_name"] = file_name
+    if missing_unfillable_required(tool, set(args)):
+        _deny()
+    for unsafe in ACCOUNT_WIDE_QUERY_FIELDS:
+        args.pop(unsafe, None)
+    return args
