@@ -47,6 +47,7 @@ def get_engine() -> Engine:
         connect_args = {}
         if settings.database_url.startswith("sqlite"):
             connect_args["check_same_thread"] = False
+            connect_args["timeout"] = 30
         _engine = create_engine(
             settings.database_url,
             connect_args=connect_args,
@@ -81,8 +82,17 @@ def get_db() -> Generator[Session, None, None]:
     session = get_session_factory()()
     try:
         yield session
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        session.close()
+        try:
+            session.close()
+        except Exception:
+            pass
 
 
 def init_db() -> None:

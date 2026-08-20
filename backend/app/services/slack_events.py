@@ -22,6 +22,7 @@ from app.integrations.slack_mapping import exact_ts
 from app.schemas.inbox import SlackSyncResult
 from app.services.slack_sync import ingest_slack_event_message, sync_slack_messages
 from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
+from app.services.translation_queue import discard_pending_translations, flush_pending_translations
 
 logger = logging.getLogger(__name__)
 
@@ -153,13 +154,21 @@ class SlackEventService:
                 return
             result = await ingest_slack_event_message(session, adapter, event, channel_id=channel_id)
             session.commit()
+            flush_pending_translations()
             self.processed += 1
             runtime.note_slack_event(result)
         except Exception:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            discard_pending_translations()
             raise
         finally:
-            session.close()
+            try:
+                session.close()
+            except Exception:
+                pass
 
     async def _run_socket(self) -> None:
         if self._connect_fn is not None:
@@ -320,15 +329,27 @@ async def run_one_slack_reconciliation(*, reason: str) -> None:
                     message_limit=settings.slack_sync_message_limit,
                 )
             session.commit()
+            flush_pending_translations()
             run.succeeded(result)
             logger.info("slack recon done reason=%s", reason)
     except SyncInProgressError:
         logger.info("slack recon skipped reason=already_running")
     except SlackError as exc:
-        session.rollback()
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        discard_pending_translations()
         logger.info("slack recon failed reason=%s error_code=%s", reason, public_slack_code(exc))
     except Exception:
-        session.rollback()
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        discard_pending_translations()
         logger.info("slack recon failed reason=%s error_code=slack_api", reason)
     finally:
-        session.close()
+        try:
+            session.close()
+        except Exception:
+            pass

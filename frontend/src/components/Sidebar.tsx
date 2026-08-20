@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { InboxFilter } from "../types/inbox";
 import type { ChatSummary } from "../types/inbox";
+import { AutoTranslateToggle } from "./AutoTranslateToggle";
 import { ChatList } from "./ChatList";
 import { FilterBar } from "./FilterBar";
 import { ThemeSwitcher } from "./ThemeSwitcher";
@@ -40,6 +41,9 @@ type SidebarProps = {
   onSyncSlack?: () => void;
   slackSyncing?: boolean;
   syncNote?: string;
+  autoTranslate?: boolean;
+  autoTranslateBackendEnabled?: boolean;
+  onAutoTranslateChange?: (enabled: boolean) => void;
 };
 
 function typexStatusLabel(
@@ -148,6 +152,9 @@ export function Sidebar({
   onSyncSlack,
   slackSyncing = false,
   syncNote = "",
+  autoTranslate = true,
+  autoTranslateBackendEnabled = true,
+  onAutoTranslateChange,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -257,6 +264,13 @@ export function Sidebar({
       ) : (
         <ChatList chats={chats} selectedId={selectedId} onSelect={onSelect} />
       )}
+      {onAutoTranslateChange ? (
+        <AutoTranslateToggle
+          enabled={autoTranslate}
+          backendEnabled={autoTranslateBackendEnabled}
+          onChange={onAutoTranslateChange}
+        />
+      ) : null}
       <ThemeSwitcher />
     </aside>
   );

@@ -5,6 +5,7 @@ from app.enums import ChatType, DirectionSource, MessageDirection, Platform
 from app.models import AIAnalysis, Chat, Message, MessageAttachment
 from app.schemas.unified import UnifiedChat, UnifiedMessage
 from app.services.contact_resolution import resolve_contact
+from app.services.translation_queue import note_message_id
 from app.services.typex_chat_identity import find_existing_typex_chat, find_existing_typex_message
 from app.time_utils import utc_now
 
@@ -97,6 +98,8 @@ class MessageIngestionService:
                     self.message_updated = True
             self.session.flush()
             self._ingest_attachments(existing, payload)
+            if self.message_updated:
+                note_message_id(existing.id)
             return existing, False
 
         direction = payload.direction or MessageDirection.INCOMING
@@ -136,6 +139,7 @@ class MessageIngestionService:
         chat.updated_at = utc_now()
         self.session.flush()
         self._ingest_attachments(message, payload)
+        note_message_id(message.id)
         return message, True
 
     def _ingest_attachments(self, message: Message, payload: UnifiedMessage) -> None:

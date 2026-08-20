@@ -70,6 +70,15 @@ export type MediaPlaceholder = {
   caption: string | null;
 };
 
+export type TranslationStatus = "pending" | "completed" | "failed" | "skipped";
+
+export type MessageTranslation = {
+  target_language: string;
+  source_language: string | null;
+  translated_text: string | null;
+  status: TranslationStatus;
+};
+
 export type ChatMessage = {
   id: number;
   chat_id: number;
@@ -86,6 +95,7 @@ export type ChatMessage = {
   created_at: string;
   attachments?: MessageAttachment[];
   media_placeholder?: MediaPlaceholder | null;
+  translation?: MessageTranslation | null;
 };
 
 export type SeedResult = {
@@ -204,6 +214,12 @@ export type SyncStatus = {
   interval_seconds: number;
   max_backoff_seconds: number;
   inbox_generation: number;
+  translation_generation: number;
+  auto_translate_enabled: boolean;
+  translation_requests: number;
+  translation_cache_hits: number;
+  translation_skipped: number;
+  translation_failed: number;
   typex: PlatformSyncStatus;
   telegram: PlatformSyncStatus;
   slack: PlatformSyncStatus;

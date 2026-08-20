@@ -16,12 +16,14 @@ import {
   fetchSlackHealth,
   fetchTelegramHealth,
   fetchTypeXHealth,
+  queueChatTranslations,
   reanalyzeChat,
   seedMockData,
   setAutoSync,
   syncSlack,
   syncTelegram,
   syncTypeX,
+  translateMessage,
   updateChatStatus,
   updateMessageDirection,
 } from "../services/api";
@@ -35,6 +37,7 @@ import type {
   SyncStatus,
   TypeXSyncResult,
 } from "../types/inbox";
+import { readAutoTranslatePreference, writeAutoTranslatePreference } from "../utils/autoTranslate";
 
 // Local backend polling only. It reports scheduler state and never triggers a messenger sync.
 const STATUS_POLL_MS = 4000;
@@ -157,8 +160,11 @@ export function InboxPage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [autoSyncToggling, setAutoSyncToggling] = useState(false);
   const [focusMessageId, setFocusMessageId] = useState<number | null>(null);
+  const [translatingId, setTranslatingId] = useState<number | null>(null);
+  const [autoTranslate, setAutoTranslate] = useState(readAutoTranslatePreference);
   const [error, setError] = useState("");
   const generationRef = useRef(0);
+  const translationGenerationRef = useRef(0);
   const selectedIdRef = useRef<number | null>(null);
 
   // Real messenger data must never be mixed with demo seeding.
@@ -203,6 +209,17 @@ export function InboxPage() {
 
   selectedIdRef.current = resolvedSelectedId;
 
+  const refreshSelectedMessagesQuietly = useCallback(async () => {
+    const chatId = selectedIdRef.current;
+    if (chatId === null) {
+      return;
+    }
+    const items = await fetchChatMessages(chatId);
+    if (selectedIdRef.current === chatId) {
+      setMessages(items);
+    }
+  }, []);
+
   // Background refresh: keeps the selected chat, the AI panel and rendered images untouched.
   const refreshInboxQuietly = useCallback(async () => {
     await loadChats();
@@ -242,9 +259,15 @@ export function InboxPage() {
           return;
         }
         setSyncStatus(status);
-        if (status.inbox_generation !== generationRef.current) {
-          generationRef.current = status.inbox_generation;
+        const inboxChanged = status.inbox_generation !== generationRef.current;
+        const translationChanged =
+          status.translation_generation !== translationGenerationRef.current;
+        generationRef.current = status.inbox_generation;
+        translationGenerationRef.current = status.translation_generation;
+        if (inboxChanged) {
           await refreshInboxQuietly();
+        } else if (translationChanged) {
+          await refreshSelectedMessagesQuietly();
         }
       } catch {
         // The backend may be restarting. Keep the current Inbox and retry on the next tick.
@@ -259,7 +282,7 @@ export function InboxPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [connection, refreshInboxQuietly]);
+  }, [connection, refreshInboxQuietly, refreshSelectedMessagesQuietly]);
 
   useEffect(() => {
     let cancelled = false;
@@ -344,6 +367,18 @@ export function InboxPage() {
       cancelled = true;
     };
   }, [resolvedSelectedId]);
+
+  useEffect(() => {
+    if (resolvedSelectedId === null || !autoTranslate) {
+      return;
+    }
+    if (syncStatus?.auto_translate_enabled === false) {
+      return;
+    }
+    void queueChatTranslations(resolvedSelectedId).catch(() => {
+      // Lazy queue is best-effort. Opening a chat must still show original messages.
+    });
+  }, [resolvedSelectedId, autoTranslate, syncStatus?.auto_translate_enabled]);
 
   useEffect(() => {
     if (resolvedSelectedId === null) {
@@ -497,6 +532,23 @@ export function InboxPage() {
     }
   }
 
+  async function handleTranslate(messageId: number, force: boolean) {
+    setTranslatingId(messageId);
+    try {
+      const updated = await translateMessage(messageId, force);
+      setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch {
+      setError("Could not translate message.");
+    } finally {
+      setTranslatingId(null);
+    }
+  }
+
+  async function handleAutoTranslateChange(enabled: boolean) {
+    setAutoTranslate(enabled);
+    writeAutoTranslatePreference(enabled);
+  }
+
   async function handleAnalyze(force: boolean) {
     if (resolvedSelectedId === null) {
       return;
@@ -581,17 +633,24 @@ export function InboxPage() {
         }}
         slackSyncing={slackBusy}
         syncNote={syncNote}
+        autoTranslate={autoTranslate}
+        autoTranslateBackendEnabled={syncStatus?.auto_translate_enabled !== false}
+        onAutoTranslateChange={handleAutoTranslateChange}
       />
       <ConversationView
         chat={selectedChat}
         messages={messages}
         loading={messagesLoading}
         focusMessageId={focusMessageId}
+        translatingId={translatingId}
         onStatusChange={(status) => {
           void handleStatusChange(status);
         }}
         onDirectionChange={(messageId, direction) => {
           void handleDirectionChange(messageId, direction);
+        }}
+        onTranslate={(messageId, force) => {
+          void handleTranslate(messageId, force);
         }}
       />
       <AIAnalysisPanel

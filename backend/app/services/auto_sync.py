@@ -29,6 +29,7 @@ from app.services.sync_runtime import (
     error_code_for,
     get_sync_runtime,
 )
+from app.services.translation_queue import discard_pending_translations, flush_pending_translations
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,7 @@ class AutoSyncScheduler:
             async with self._runtime.track(platform, manual=False) as run:
                 result = await asyncio.wait_for(self._runners[platform](session), timeout=self._timeout)
                 session.commit()
+                flush_pending_translations()
                 run.succeeded(result)
             state = self._runtime.state(platform)
             logger.info(
@@ -141,10 +143,18 @@ class AutoSyncScheduler:
         except SyncInProgressError:
             logger.info("auto_sync skipped platform=%s reason=already_running", platform.value)
         except asyncio.CancelledError:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            discard_pending_translations()
             raise
         except Exception:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            discard_pending_translations()
             state = self._runtime.state(platform)
             logger.info(
                 "auto_sync failed platform=%s error_code=%s failures=%s backoff_seconds=%s",
@@ -154,7 +164,10 @@ class AutoSyncScheduler:
                 self._runtime.backoff_seconds(state.consecutive_failures),
             )
         finally:
-            session.close()
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 _scheduler: AutoSyncScheduler | None = None

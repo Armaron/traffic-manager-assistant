@@ -3,13 +3,16 @@ from fastapi import APIRouter, HTTPException
 from app.ai.errors import AIProviderError
 from app.ai.factory import get_ai_provider
 from app.api.deps import DbSession, http_for_ai
+from app.config import get_settings
 from app.models import AIAnalysis, Message
 from app.schemas.analysis import AIAnalysisRead
 from app.schemas.chat import ChatRead
 from app.schemas.inbox import ChatStatusUpdate, ChatSummary
-from app.schemas.message import MessageRead
+from app.schemas.message import MessageRead, TranslationQueueResult
 from app.services import inbox as inbox_service
 from app.services.analysis import AIAnalysisService
+from app.services.message_translation import lazy_queue_ids, to_message_read
+from app.services.translation_queue import enqueue_message_ids
 
 router = APIRouter(prefix="/chats", tags=["inbox"])
 
@@ -44,7 +47,18 @@ def get_chat_messages(chat_id: int, db: DbSession) -> list[MessageRead]:
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     messages = inbox_service.list_messages(db, chat_id)
-    return [MessageRead.model_validate(message) for message in messages]
+    return [to_message_read(message) for message in messages]
+
+
+@router.post("/{chat_id}/translations/queue", response_model=TranslationQueueResult)
+def queue_chat_translations(chat_id: int, db: DbSession) -> TranslationQueueResult:
+    chat = inbox_service.get_chat(db, chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    if not get_settings().auto_translate_enabled:
+        return TranslationQueueResult(queued=0)
+    queued = enqueue_message_ids(lazy_queue_ids(db, chat_id), auto=True)
+    return TranslationQueueResult(queued=queued)
 
 
 @router.patch("/{chat_id}/status", response_model=ChatRead)

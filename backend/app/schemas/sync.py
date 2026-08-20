@@ -48,12 +48,19 @@ class SyncStatusResponse(BaseModel):
     interval_seconds: int
     max_backoff_seconds: int
     inbox_generation: int
+    translation_generation: int = 0
+    auto_translate_enabled: bool = True
+    translation_requests: int = 0
+    translation_cache_hits: int = 0
+    translation_skipped: int = 0
+    translation_failed: int = 0
     typex: PlatformSyncStatus
     telegram: PlatformSyncStatus
     slack: PlatformSyncStatus
 
     @classmethod
     def from_runtime(cls, runtime: SyncRuntime) -> "SyncStatusResponse":
+        from app.config import get_settings
         from app.services.sync_runtime import SyncPlatform
 
         return cls(
@@ -61,6 +68,12 @@ class SyncStatusResponse(BaseModel):
             interval_seconds=runtime.interval_seconds,
             max_backoff_seconds=runtime.max_backoff_seconds,
             inbox_generation=runtime.inbox_generation,
+            translation_generation=runtime.translation_generation,
+            auto_translate_enabled=get_settings().auto_translate_enabled,
+            translation_requests=runtime.translation_requests,
+            translation_cache_hits=runtime.translation_cache_hits,
+            translation_skipped=runtime.translation_skipped,
+            translation_failed=runtime.translation_failed,
             typex=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.TYPEX)),
             telegram=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.TELEGRAM)),
             slack=PlatformSyncStatus.from_state(runtime.state(SyncPlatform.SLACK)),

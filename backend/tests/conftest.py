@@ -22,6 +22,8 @@ os.environ["SLACK_MODE"] = "mock"
 os.environ["SLACK_USER_TOKEN"] = ""
 os.environ["SLACK_APP_TOKEN"] = ""
 os.environ["TYPEX_SELF_DISPLAY_NAME"] = ""
+os.environ["TRANSLATION_PROVIDER"] = "mock"
+os.environ["AUTO_TRANSLATE_ENABLED"] = "true"
 
 import pytest
 
@@ -30,7 +32,7 @@ from fastapi.testclient import TestClient
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
-from app.models import AIAnalysis, Chat, Company, Contact, KnowledgeEntry, Message, MessageAttachment  # noqa: F401
+from app.models import AIAnalysis, Chat, Company, Contact, KnowledgeEntry, Message, MessageAttachment, MessageTranslation  # noqa: F401
 
 
 @pytest.fixture()

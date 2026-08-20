@@ -384,6 +384,34 @@ input::placeholder {
   line-height: 1.5;
 }
 
+.message-bubble__translation {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.message-bubble__lang {
+  display: inline-block;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.message-bubble__translation p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.message-bubble__translate {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .conversation__thread {
   width: 100%;
   max-width: 1000px;
@@ -1034,6 +1062,23 @@ input::placeholder {
   margin-top: auto;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
+}
+
+.auto-translate-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auto-translate-toggle .theme-switcher__label {
+  margin-bottom: 0;
+}
+
+.auto-translate-toggle + .theme-switcher {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
 }
 
 .theme-switcher__label {

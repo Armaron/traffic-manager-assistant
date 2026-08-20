@@ -14,6 +14,7 @@ from app.services.slack_events import (
     stop_slack_events,
 )
 from app.services.sync_runtime import get_sync_runtime, reset_sync_runtime
+from app.services.translation_queue import start_translation_workers, stop_translation_workers
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,7 @@ async def lifespan(_app: FastAPI):
         db_path.name if db_path else "memory",
     )
     reset_sync_runtime()
+    await start_translation_workers()
     await start_slack_events()
     if get_sync_runtime().auto_sync_enabled:
         await start_auto_sync()
@@ -46,6 +48,7 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        await stop_translation_workers()
         await stop_slack_events()
         await stop_auto_sync()
 
