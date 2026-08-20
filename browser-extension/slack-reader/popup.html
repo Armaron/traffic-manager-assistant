@@ -10,11 +10,22 @@
       <p class="eyebrow">Traffic Manager Assistant</p>
       <h1>Slack Browser Reader</h1>
       <p id="status" class="status">Checking Slack tab…</p>
+      <ul id="summary" class="summary">
+        <li>Current conversation detected: <span id="conv-detected">—</span></li>
+        <li>Messages visible: <span id="visible-count">—</span></li>
+        <li>Parsed cleanly: <span id="parsed-count">—</span></li>
+      </ul>
       <label class="toggle">
         <input id="auto-capture" type="checkbox" />
         Auto capture
       </label>
       <button id="capture" type="button">Capture current conversation</button>
+      <label class="toggle">
+        <input id="parser-diagnostics" type="checkbox" />
+        Parser diagnostics
+      </label>
+      <pre id="diagnostics" class="diagnostics" hidden></pre>
+      <button id="sanitize" type="button" hidden>Copy sanitized DOM</button>
       <label class="field">
         Backend
         <input id="backend-url" type="text" spellcheck="false" />

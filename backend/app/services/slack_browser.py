@@ -166,6 +166,11 @@ def ingest_slack_browser_events(
     result = SlackSyncResult()
     contacts_before = session.scalar(select(func.count()).select_from(Contact)) or 0
     conversation = payload.conversation
+    kept_messages = [item for item in payload.messages if not _should_skip_browser_message(item)]
+    if not kept_messages:
+        logger.info("slack_browser ingest skipped empty or noise-only payload")
+        note_browser_heartbeat(workspace_present=True)
+        return result
     chat_type = CHAT_TYPES.get(conversation.type, ChatType.UNKNOWN)
     chat, chat_created = ingestion.ingest_chat(
         UnifiedChat(
@@ -179,9 +184,7 @@ def ingest_slack_browser_events(
     if chat_created:
         result.chats_created = 1
     _ = chat
-    for item in payload.messages:
-        if _should_skip_browser_message(item):
-            continue
+    for item in kept_messages:
         direction, source = _direction(item)
         unified = UnifiedMessage(
             platform=Platform.SLACK,

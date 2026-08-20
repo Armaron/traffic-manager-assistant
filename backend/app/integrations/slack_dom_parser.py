@@ -14,7 +14,9 @@ from html.parser import HTMLParser
 SLACK_TS_RE = re.compile(r"^\d{9,12}\.\d+$")
 EMBEDDED_TS_RE = re.compile(r"(\d{9,12}\.\d+)")
 CLIENT_CONV_RE = re.compile(r"/client/(?:[ET][A-Z0-9]+/)+([CDG][A-Z0-9]+)", re.IGNORECASE)
+CLIENT_CONV_LOOSE_RE = re.compile(r"/client/(?:[^/?#]+/)*([CDG][A-Z0-9]{8,})", re.IGNORECASE)
 ARCHIVES_CONV_RE = re.compile(r"/archives/([CDG][A-Z0-9]+)", re.IGNORECASE)
+CONV_ID_RE = re.compile(r"^[CDG][A-Z0-9]{6,}$", re.IGNORECASE)
 CHANNEL_QUERY_RE = re.compile(r"[?&](?:channel|cid)=([CDG][A-Z0-9]+)", re.IGNORECASE)
 THREAD_URL_RE = re.compile(r"/thread/[CDG][A-Z0-9]+-(\d+\.\d+)", re.IGNORECASE)
 PERMALINK_TS_RE = re.compile(r"/p(\d{10})(\d+)")
@@ -66,7 +68,23 @@ CURRENT_USER_ATTRS = (
     ("data-qa", "current-user"),
     ("data-qa", "user-button"),
     ("data-qa", "account-button"),
-    ("data-qa", "account-switcher-button"),
+)
+CHROME_QA_PREFIXES = (
+    "hover",
+    "message_actions",
+    "emoji-bar",
+    "reaction",
+    "save_message",
+    "share_message",
+    "more_actions",
+    "reply_in_thread",
+    "reply_bar",
+    "thread_replies",
+    "bookmark",
+    "pin",
+    "unread",
+    "date_divider",
+    "day_heading",
 )
 SENDER_ATTRS = (
     ("data-qa", "message_sender"),
@@ -122,6 +140,8 @@ class ParsedConversation:
 class ParsedIdentity:
     external_id: str | None
     name: str | None
+    confidence: str = "low"
+    explicit: bool = False
 
 
 @dataclass(frozen=True)
@@ -136,6 +156,20 @@ class ParsedMessage:
     browser_fallback_id: bool
     attachment_placeholder: str | None = None
     deleted: bool = False
+    sender_inherited: bool = False
+
+
+@dataclass(frozen=True)
+class ParsedDiagnostics:
+    candidates: int = 0
+    canonical_roots: int = 0
+    parsed: int = 0
+    skipped_low_confidence: int = 0
+    stable_ts: int = 0
+    fallback_ids: int = 0
+    inherited_sender: int = 0
+    unknown_direction: int = 0
+    missing_sender: int = 0
 
 
 @dataclass(frozen=True)
@@ -144,6 +178,7 @@ class ParsedPage:
     current_user: ParsedIdentity
     messages: tuple[ParsedMessage, ...]
     workspace_present: bool
+    diagnostics: ParsedDiagnostics = ParsedDiagnostics()
 
 
 class _TreeBuilder(HTMLParser):
@@ -196,12 +231,52 @@ def parse_html(html: str) -> DomNode:
     return builder.finish()
 
 
+def _is_hidden(node: DomNode) -> bool:
+    if node.attr("aria-hidden") == "true" or "hidden" in node.attrs:
+        return True
+    classes = node.attrs.get("class", "").lower()
+    if "offscreen" in classes or "sr-only" in classes or "c-offscreen" in classes:
+        return True
+    style = node.attrs.get("style") or ""
+    if re.search(r"display\s*:\s*none", style, re.IGNORECASE):
+        return True
+    if re.search(r"visibility\s*:\s*hidden", style, re.IGNORECASE):
+        return True
+    return False
+
+
+def _is_chrome_node(node: DomNode) -> bool:
+    qa = node.attr("data-qa") or ""
+    lowered = qa.lower()
+    if any(lowered.startswith(prefix) for prefix in CHROME_QA_PREFIXES):
+        return True
+    if any(token in lowered for token in ("divider", "unread", "toolbar", "actions")):
+        return True
+    classes = node.attrs.get("class", "").lower()
+    if any(
+        token in classes
+        for token in (
+            "c-message_actions",
+            "c-reaction",
+            "c-icon_button",
+            "c-timestamp",
+            "c-message_kit__reactions",
+            "c-message_list__day_divider",
+            "unread__separator",
+        )
+    ):
+        return True
+    if node.tag == "time":
+        return True
+    if node.tag == "a" and "timestamp" in classes:
+        return True
+    return False
+
+
 def _visible_text(node: DomNode) -> str:
     if node.tag in {"script", "style"}:
         return ""
-    if node.attr("aria-hidden") == "true":
-        return ""
-    if node.has_class("offscreen") or node.class_contains("offscreen"):
+    if _is_hidden(node) or _is_chrome_node(node):
         return ""
     parts: list[str] = []
     if node.text:
@@ -225,10 +300,19 @@ def _normalize_text(value: str) -> str:
 def conversation_id_from_url(url: str) -> str | None:
     if not url:
         return None
-    match = CLIENT_CONV_RE.search(url) or ARCHIVES_CONV_RE.search(url) or CHANNEL_QUERY_RE.search(url)
-    if match:
+    match = (
+        CLIENT_CONV_RE.search(url)
+        or CLIENT_CONV_LOOSE_RE.search(url)
+        or ARCHIVES_CONV_RE.search(url)
+        or CHANNEL_QUERY_RE.search(url)
+    )
+    if match and is_conversation_id(match.group(1)):
         return match.group(1)
     return None
+
+
+def is_conversation_id(value: str | None) -> bool:
+    return bool(value and CONV_ID_RE.match(value))
 
 
 def ts_from_token(value: str | None) -> str | None:
@@ -355,6 +439,12 @@ def is_noise_text(text: str) -> bool:
         return True
     if TIME_ONLY_RE.match(value):
         return True
+    if re.match(
+        r"^(add reaction|reply|reply in thread|more actions|save for later|forward|share|edited|\d+\s+replies?)$",
+        value,
+        re.IGNORECASE,
+    ):
+        return True
     if CLOCK_RE.match(value) and not re.search(r"[a-zа-яё]", value, re.IGNORECASE):
         return True
     return False
@@ -372,27 +462,185 @@ def _find_all_by_attr(root: DomNode, name: str, value: str) -> list[DomNode]:
 
 
 def find_conversation_root(root: DomNode) -> DomNode | None:
+    pane = find_message_pane(root)
+    if pane is not None:
+        return pane
     for attr, value in CONVERSATION_ROOT_ATTRS:
         found = _find_by_attr(root, attr, value)
         if found is not None:
             return found
-    for node in root.iter():
-        if node.attr("data-channel-id"):
-            return node
     return root
 
 
-def parse_current_user(root: DomNode) -> ParsedIdentity:
-    for attr, value in CURRENT_USER_ATTRS:
-        node = _find_by_attr(root, attr, value)
-        if node is None:
+def find_message_pane(root: DomNode) -> DomNode | None:
+    return (
+        _find_by_attr(root, "data-qa", "message_pane")
+        or _find_by_class(root, "p-message_pane")
+        or _find_by_attr(root, "data-qa", "im_browser")
+        or _find_by_attr(root, "data-qa", "im-browser")
+        or _find_by_class(root, "p-im_browser")
+        or _find_by_class(root, "p-workspace__primary_view")
+        or _find_by_attr(root, "data-qa", "slack-conversation")
+    )
+
+
+def _sidebar_roots(root: DomNode) -> list[DomNode]:
+    found: list[DomNode] = []
+    for node in root.iter():
+        qa = (node.attr("data-qa") or "").lower()
+        classes = node.attrs.get("class", "").lower()
+        if qa in {"channel_sidebar", "user_sidebar"} or "p-channel_sidebar" in classes:
+            found.append(node)
+    return found
+
+
+def _conversation_id_from_node(node: DomNode | None) -> str | None:
+    if node is None:
+        return None
+    return next(
+        (
+            value
+            for value in (node.attr("data-channel-id"), node.attr("data-entity-id"))
+            if is_conversation_id(value)
+        ),
+        None,
+    )
+
+
+def _under_any(node: DomNode, ancestors: list[DomNode]) -> bool:
+    return any(_is_under(node, ancestor) for ancestor in ancestors)
+
+
+def _conversation_id_from_hrefs(node: DomNode) -> str | None:
+    counts: dict[str, int] = {}
+    for child in node.iter():
+        found = conversation_id_from_url(child.attr("href") or "")
+        if found:
+            counts[found] = counts.get(found, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
+
+
+def conversation_id_from_active_pane(root: DomNode) -> str | None:
+    pane = find_message_pane(root)
+    sidebars = _sidebar_roots(root)
+    if pane is not None:
+        own = _conversation_id_from_node(pane)
+        if own:
+            return own
+        for node in pane.iter():
+            if node.attr("data-ts") or _under_any(node, sidebars):
+                continue
+            found = _conversation_id_from_node(node)
+            if found:
+                return found
+        from_links = _conversation_id_from_hrefs(pane)
+        if from_links:
+            return from_links
+        ancestors = [node for node in root.iter() if node is not pane and _is_under(pane, node)]
+        for node in reversed(ancestors):
+            if _under_any(node, sidebars):
+                continue
+            found = _conversation_id_from_node(node)
+            if found:
+                return found
+    for attr, value in (
+        ("data-qa", "channel_name_button"),
+        ("data-qa", "channel_name"),
+        ("data-qa", "dm_title"),
+    ):
+        header = _find_by_attr(root, attr, value)
+        if header is None:
             continue
-        user_id = node.attr("data-user-id") or node.attr("data-entity-id")
-        name = clean_sender_name(
-            node.attr("data-user-name") or node.attr("aria-label") or _visible_text(node)
-        )
-        return ParsedIdentity(external_id=user_id, name=name)
-    return ParsedIdentity(external_id=None, name=None)
+        href_id = conversation_id_from_url(header.attr("href") or "")
+        if href_id:
+            return href_id
+        for child in header.iter():
+            href_id = conversation_id_from_url(child.attr("href") or "")
+            if href_id:
+                return href_id
+    return _conversation_id_from_hrefs(root)
+
+
+def active_conversation_id(root: DomNode, url: str) -> str | None:
+    return conversation_id_from_active_pane(root) or conversation_id_from_url(url)
+
+
+def find_thread_pane(root: DomNode) -> DomNode | None:
+    pane = _find_by_attr(root, "data-qa", "threads_flexpane")
+    if pane is None:
+        return None
+    if any(_is_candidate_root(child) for child in pane.iter()):
+        return pane
+    return None
+
+
+def _find_by_class(root: DomNode, name: str) -> DomNode | None:
+    for node in root.iter():
+        if node.has_class(name):
+            return node
+    return None
+
+
+def parse_current_user(root: DomNode) -> ParsedIdentity:
+    matches: list[DomNode] = []
+    for attr, value in CURRENT_USER_ATTRS:
+        matches.extend(_find_all_by_attr(root, attr, value))
+    if not matches:
+        return ParsedIdentity(external_id=None, name=None, confidence="low")
+    matches.sort(key=lambda node: 0 if node.attr("data-user-id") else 1)
+    node = matches[0]
+    user_id = node.attr("data-user-id") or node.attr("data-entity-id")
+    name = clean_sender_name(node.attr("data-user-name") or node.attr("aria-label"))
+    if user_id:
+        confidence = "high"
+    elif node.attr("data-user-name"):
+        confidence = "medium"
+    else:
+        confidence = "low"
+    return ParsedIdentity(external_id=user_id, name=name, confidence=confidence)
+
+
+def _own_stable_ts(node: DomNode) -> str | None:
+    return ts_from_token(node.attr("data-ts") or node.attr("data-item-key") or node.attr("id"))
+
+
+def _nested_stable_ts(node: DomNode) -> str | None:
+    own = _own_stable_ts(node)
+    if own:
+        return own
+    for child in node.iter():
+        ts = ts_from_token(child.attr("data-ts") or child.attr("id"))
+        if ts:
+            return ts
+        permalink = timestamp_from_permalink(child.attr("href"))
+        if permalink:
+            return permalink
+    return None
+
+
+def _has_trusted_body(node: DomNode) -> bool:
+    for child in node.iter():
+        qa = child.attr("data-qa") or ""
+        if qa in {"message-text", "message_text", "message_content"} or any(child.has_class(name) for name in TEXT_CLASSES):
+            if _normalize_text(_visible_text(child)):
+                return True
+    return False
+
+
+def _is_known_wrapper(node: DomNode) -> bool:
+    qa = node.attr("data-qa") or ""
+    if qa in {"virtual-list-item", "virtual_list_item", "message_container", "message-container"}:
+        return True
+    if node.has_class("c-virtual_list__item") or node.has_class("c-message_kit__background") or node.has_class(
+        "c-message_kit__message"
+    ):
+        return True
+    node_id = node.attr("id") or ""
+    if node_id.startswith("message-list") and ts_from_token(node_id):
+        return True
+    return (node.attr("role") or "").lower() == "message"
 
 
 def _is_divider(node: DomNode) -> bool:
@@ -400,90 +648,58 @@ def _is_divider(node: DomNode) -> bool:
     node_id = (node.attr("id") or "").lower()
     classes = node.attrs.get("class", "").lower()
     if "divider" in qa or "unread" in qa or "start_of_history" in qa or "day_heading" in qa:
-        return True
+        if not _has_trusted_body(node) and not _own_stable_ts(node):
+            return True
     if "date_divider" in classes or "unread__separator" in classes or "c-message_list__day_divider" in classes:
         return True
-    if "date" in node_id and ts_from_token(node.attr("id")) is None:
+    if "date" in node_id and ts_from_token(node.attr("id")) is None and not _has_trusted_body(node):
         return True
-    label = _normalize_text(_visible_text(node))
-    if DATE_DIVIDER_RE.match(label) and not _has_message_signal(node):
-        return True
-    return False
-
-
-def _has_message_signal(node: DomNode) -> bool:
-    if is_slack_ts(ts_from_token(node.attr("data-ts") or node.attr("data-item-key") or node.attr("id"))):
-        return True
-    if (node.attr("role") or "").lower() == "message":
-        return True
-    if (node.attr("data-qa") or "") in {"message_container", "message-container"}:
-        return True
-    for child in node.iter():
-        if child is node:
-            continue
-        qa = child.attr("data-qa") or ""
-        if qa in {"message_container", "message-container", "message-text", "message_text", "message_content"}:
-            return True
-        if (child.attr("role") or "").lower() == "message":
-            return True
-        if child.has_class("c-timestamp") or child.has_class("c-message_kit__message") or child.has_class(
-            "p-rich_text_section"
-        ):
-            return True
-        if child.tag == "a" and "timestamp" in (child.attrs.get("class") or ""):
-            return True
-        if ts_from_token(child.attr("data-ts") or child.attr("id")):
-            return True
-    return False
-
-
-def _looks_like_message(node: DomNode) -> bool:
-    if _is_divider(node):
+    if _own_stable_ts(node) or _has_trusted_body(node):
         return False
-    qa = node.attr("data-qa") or ""
-    if qa in {"virtual-list-item", "virtual_list_item"}:
-        return _has_message_signal(node)
-    if qa in {"message_container", "message-container"}:
+    label = _normalize_text(_visible_text(node))
+    if DATE_DIVIDER_RE.match(label) or label.lower() in UI_NOISE:
         return True
-    if (node.attr("role") or "").lower() == "message":
+    return False
+
+
+def _is_candidate_root(node: DomNode) -> bool:
+    if _is_divider(node) or _is_chrome_node(node):
+        return False
+    wrapper = _is_known_wrapper(node)
+    own_ts = _own_stable_ts(node)
+    if not wrapper and not own_ts:
+        return False
+    if wrapper and (own_ts or _nested_stable_ts(node) or _has_trusted_body(node)):
         return True
-    if (node.attr("id") or "").startswith("message-list") and ts_from_token(node.attr("id")):
+    return bool(own_ts and _has_trusted_body(node))
+
+
+def _is_under(node: DomNode, ancestor: DomNode) -> bool:
+    if node is ancestor:
         return True
-    if node.has_class("c-message_kit__background") or node.has_class("c-message_kit__message"):
-        return True
-    if node.has_class("c-virtual_list__item") and ts_from_token(node.attr("data-item-key") or node.attr("id")):
-        return True
-    return bool(ts_from_token(node.attr("data-ts") or node.attr("data-item-key")))
+    for child in ancestor.iter():
+        if child is node:
+            return True
+    return False
+
+
+def find_canonical_message_roots(pane: DomNode) -> list[DomNode]:
+    candidates = [node for node in pane.iter() if _is_candidate_root(node)]
+    kept: list[DomNode] = []
+    for node in candidates:
+        if any(_is_under(node, parent) for parent in kept):
+            continue
+        kept.append(node)
+    return kept
+
+
+def find_divider_nodes(pane: DomNode) -> list[DomNode]:
+    return [node for node in pane.iter() if _is_divider(node) and not _is_candidate_root(node)]
 
 
 def find_rendered_messages(root: DomNode) -> list[DomNode]:
-    pane = None
-    thread = _find_by_attr(root, "data-qa", "threads_flexpane")
-    if thread is not None:
-        has_msgs = any(_looks_like_message(child) for child in thread.iter())
-        if has_msgs:
-            pane = thread
-    if pane is None:
-        pane = _find_by_attr(root, "data-qa", "message_pane")
-    search_root = pane or root
-    found: list[DomNode] = []
-    seen: set[int] = set()
-
-    def add(node: DomNode) -> None:
-        marker = id(node)
-        if marker in seen or not _looks_like_message(node):
-            return
-        seen.add(marker)
-        found.append(node)
-
-    for attr, value in MESSAGE_ATTRS + (("data-qa", "message-container"), ("data-qa", "virtual_list_item")):
-        for node in _find_all_by_attr(search_root, attr, value):
-            add(node)
-    if found:
-        return found
-    for node in search_root.iter():
-        add(node)
-    return found
+    pane = find_thread_pane(root) or find_message_pane(root) or root
+    return find_canonical_message_roots(pane)
 
 
 def parse_sender(node: DomNode) -> ParsedIdentity:
@@ -491,53 +707,66 @@ def parse_sender(node: DomNode) -> ParsedIdentity:
         sender = _find_by_attr(node, attr, value)
         if sender is not None:
             user_id = sender.attr("data-user-id") or node.attr("data-user-id")
-            name = clean_sender_name(_normalize_text(_visible_text(sender)) or sender.attr("data-user-name"))
-            return ParsedIdentity(external_id=user_id, name=name or None)
+            name = clean_sender_name(sender.attr("data-user-name") or _normalize_text(_visible_text(sender)))
+            return ParsedIdentity(
+                external_id=user_id,
+                name=name or None,
+                confidence="high" if user_id else "medium" if name else "low",
+                explicit=True,
+            )
     user_id = node.attr("data-user-id") or node.attr("data-message-sender-id")
     name = node.attr("data-user-name")
     for child in node.iter():
-        if child.has_class("c-message__sender_button") or child.has_class("c-message_kit__sender") or child.has_class("c-message__sender"):
+        if child.has_class("c-message__sender_button") or child.has_class("c-message_kit__sender") or child.has_class(
+            "c-message__sender"
+        ):
+            parsed_name = clean_sender_name(_normalize_text(_visible_text(child)) or name)
+            child_id = child.attr("data-user-id") or user_id
             return ParsedIdentity(
-                external_id=child.attr("data-user-id") or user_id,
-                name=clean_sender_name(_normalize_text(_visible_text(child)) or name),
+                external_id=child_id,
+                name=parsed_name,
+                confidence="high" if child_id else "medium" if parsed_name else "low",
+                explicit=True,
             )
-    return ParsedIdentity(external_id=user_id, name=clean_sender_name(name))
+    if user_id or name:
+        cleaned = clean_sender_name(name)
+        return ParsedIdentity(
+            external_id=user_id,
+            name=cleaned,
+            confidence="high" if user_id else "medium",
+            explicit=True,
+        )
+    return ParsedIdentity(external_id=None, name=None, confidence="low", explicit=False)
 
 
 def parse_timestamp(node: DomNode) -> str | None:
-    direct = ts_from_token(node.attr("data-ts") or node.attr("data-item-key") or node.attr("id"))
-    if direct:
-        return direct
+    nested = _nested_stable_ts(node)
+    if nested:
+        return nested
     for child in node.iter():
-        ts = ts_from_token(child.attr("data-ts") or child.attr("id"))
-        if ts:
-            return ts
-        href = child.attr("href")
-        permalink_ts = timestamp_from_permalink(href)
-        if permalink_ts:
-            return permalink_ts
         datetime_attr = child.attr("datetime")
         if datetime_attr:
             return datetime_attr
+        if child.has_class("c-timestamp") or child.tag == "time":
+            clock = _normalize_text(child.text)
+            if clock:
+                return clock
     return None
 
 
-def parse_thread_marker(node: DomNode, page_url: str) -> str | None:
+def parse_thread_marker(node: DomNode, page_url: str, in_thread_pane: bool = False) -> str | None:
     thread_ts = node.attr("data-thread-ts") or node.attr("data-thread-id")
-    own_ts = node.attr("data-ts")
+    own_ts = _nested_stable_ts(node)
     if thread_ts and thread_ts != own_ts:
         return thread_ts
-    url_thread = thread_id_from_url(page_url)
-    if url_thread and url_thread != own_ts:
-        return url_thread
+    if in_thread_pane:
+        url_thread = thread_id_from_url(page_url)
+        if url_thread and url_thread != own_ts:
+            return url_thread
     for child in node.iter():
-        label = _normalize_text(_visible_text(child)).lower()
-        if child.attr("data-qa") in {"reply_bar", "thread_reply"} or "reply" in (child.attr("data-qa") or ""):
-            marker = child.attr("data-thread-ts")
-            if marker:
-                return marker
-        if "replies" in label and child.attr("data-thread-ts"):
-            return child.attr("data-thread-ts")
+        marker = child.attr("data-thread-ts")
+        if marker and marker != own_ts:
+            return marker
     return None
 
 
@@ -545,11 +774,11 @@ def _is_avatar_image(node: DomNode) -> bool:
     classes = node.attrs.get("class", "").lower()
     qa = (node.attr("data-qa") or "").lower()
     alt = (node.attr("alt") or "").lower()
-    if any(hint in classes for hint in ("c-avatar", "c-base_icon", "c-presence")):
+    if any(hint in classes for hint in ("c-avatar", "c-base_icon", "c-presence", "emoji")):
         return True
-    if "avatar" in qa or "member_image" in qa or "user_image" in qa:
+    if "avatar" in qa or "member_image" in qa or "user_image" in qa or "emoji" in qa:
         return True
-    if "avatar" in alt or "presence" in alt:
+    if "avatar" in alt or "presence" in alt or "emoji" in alt:
         return True
     return False
 
@@ -582,31 +811,27 @@ def parse_visible_attachments(node: DomNode) -> str | None:
 
 
 def parse_text(node: DomNode) -> str:
+    matches: list[DomNode] = []
     for child in node.iter():
+        if child is node or _is_hidden(child) or _is_chrome_node(child):
+            continue
         qa = child.attr("data-qa") or ""
-        if qa in {"message-text", "message_text"} or any(child.has_class(name) for name in TEXT_CLASSES):
-            text = _normalize_text(_visible_text(child))
-            if text:
-                return text
-    for attr, value in TEXT_ATTRS:
-        block = _find_by_attr(node, attr, value)
-        if block is not None:
-            text = _normalize_text(_visible_text(block))
-            if text:
-                return text
-    parts: list[str] = []
-    for child in node.children:
-        qa = child.attr("data-qa") or ""
-        if qa in {"message_sender", "message_sender_name", "image_attachment", "file_attachment", "file_stub", "file_name"}:
+        if qa in {"message-text", "message_text", "message_content"} or any(child.has_class(name) for name in TEXT_CLASSES):
+            matches.append(child)
+    innermost = [
+        candidate
+        for candidate in matches
+        if not any(other is not candidate and _is_under(other, candidate) for other in matches)
+    ]
+    seen: set[str] = set()
+    texts: list[str] = []
+    for block in innermost:
+        text = _normalize_text(_visible_text(block))
+        if not text or text in seen:
             continue
-        if child.has_class("c-timestamp") or child.has_class("c-message__sender_button") or child.has_class("c-message__sender"):
-            continue
-        if child.tag in {"time", "a"} and child.attr("data-ts"):
-            continue
-        if child.tag == "img":
-            continue
-        parts.append(_visible_text(child))
-    return _normalize_text("".join(parts))
+        seen.add(text)
+        texts.append(text)
+    return texts[0] if texts else ""
 
 
 def _direction_for(node: DomNode, sender: ParsedIdentity, current_user: ParsedIdentity) -> str:
@@ -617,15 +842,28 @@ def _direction_for(node: DomNode, sender: ParsedIdentity, current_user: ParsedId
         return "incoming"
     if node.class_contains("--mine") or node.has_class("c-message--me"):
         return "outgoing"
-    if current_user.external_id and sender.external_id:
+    current_confidence = current_user.confidence or "low"
+    if current_user.external_id and sender.external_id and current_confidence != "low":
         if sender.external_id == current_user.external_id:
             return "outgoing"
         return "incoming"
+    if current_confidence == "low":
+        return "unknown"
     if names_match(sender.name, current_user.name):
         return "outgoing"
-    if clean_sender_name(sender.name) and clean_sender_name(current_user.name):
+    if sender.name and current_user.name and current_confidence == "high":
         return "incoming"
     return "unknown"
+
+
+def _message_confidence(node: DomNode, slack_id: str | None, text: str, placeholder: str | None, deleted: bool) -> str:
+    if is_slack_ts(slack_id) and (text or placeholder or deleted) and _is_candidate_root(node):
+        return "high"
+    if is_slack_ts(slack_id):
+        return "medium"
+    if (text or placeholder) and (parse_sender(node).explicit or parse_timestamp(node)):
+        return "medium"
+    return "low"
 
 
 def parse_message_node(
@@ -634,9 +872,12 @@ def parse_message_node(
     conversation_id: str,
     current_user: ParsedIdentity,
     page_url: str,
+    sender: ParsedIdentity | None = None,
+    in_thread_pane: bool = False,
+    inherited: bool = False,
 ) -> ParsedMessage | None:
-    sender = parse_sender(node)
-    sender_name = clean_sender_name(sender.name)
+    resolved_sender = sender or parse_sender(node)
+    sender_name = clean_sender_name(resolved_sender.name)
     timestamp = parse_timestamp(node) or ""
     text = strip_message_chrome(parse_text(node), sender_name)
     placeholder = parse_visible_attachments(node)
@@ -655,39 +896,49 @@ def parse_message_node(
         return None
     if not text and not placeholder:
         return None
-    slack_id = ts_from_token(node.attr("data-ts") or node.attr("data-item-key") or node.attr("id"))
-    if not slack_id:
-        slack_id = timestamp if is_slack_ts(timestamp) else None
+    slack_id = _nested_stable_ts(node)
+    confidence = _message_confidence(node, slack_id, text, placeholder, deleted)
+    if confidence == "low":
+        return None
     browser_fallback = False
     if slack_id:
         external_id = slack_id
     else:
+        if confidence != "medium":
+            return None
         external_id = fallback_message_id(
             conversation_id,
             timestamp,
-            sender.external_id or sender_name or "",
+            resolved_sender.external_id or sender_name or "",
             text,
         )
         browser_fallback = True
     return ParsedMessage(
         external_id=external_id,
-        sender_external_id=sender.external_id,
+        sender_external_id=resolved_sender.external_id,
         sender_name=sender_name,
-        timestamp=timestamp or external_id,
+        timestamp=slack_id or timestamp or external_id,
         text=text,
-        direction=_direction_for(node, sender, current_user),
-        thread_external_id=parse_thread_marker(node, page_url),
+        direction=_direction_for(node, resolved_sender, current_user),
+        thread_external_id=parse_thread_marker(node, page_url, in_thread_pane),
         browser_fallback_id=browser_fallback,
         attachment_placeholder=placeholder,
         deleted=deleted,
+        sender_inherited=inherited,
     )
+
+
+def clean_conversation_title(value: str | None) -> str | None:
+    name = _normalize_text(value or "")
+    name = re.sub(r"^\d+\s+", "", name)
+    name = re.sub(r"^direct message with\s+", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\s+\d+\s+(new|unread).*$", "", name, flags=re.IGNORECASE)
+    return clean_sender_name(name) or name or None
 
 
 def parse_conversation(root: DomNode, url: str) -> ParsedConversation | None:
     conv_root = find_conversation_root(root)
-    url_id = conversation_id_from_url(url)
-    attr_id = conv_root.attr("data-channel-id") if conv_root else None
-    external_id = attr_id or url_id
+    external_id = active_conversation_id(root, url)
     if not external_id:
         return None
     name = ""
@@ -698,14 +949,80 @@ def parse_conversation(root: DomNode, url: str) -> ParsedConversation | None:
             or _find_by_attr(conv_root, "data-qa", "channel_name_button")
             or _find_by_attr(conv_root, "data-qa", "dm_title")
         )
+        if header is None:
+            header = (
+                _find_by_attr(root, "data-qa", "channel_name_button")
+                or _find_by_attr(root, "data-qa", "channel_name")
+                or _find_by_attr(root, "data-qa", "dm_title")
+            )
         if header is not None:
             name = name or _normalize_text(_visible_text(header))
+    name = clean_conversation_title(name) or external_id
     conv_type = conv_root.attr("data-channel-type") if conv_root else None
     return ParsedConversation(
         external_id=external_id,
-        name=name or external_id,
+        name=name,
         type=conv_type or conversation_type_from_id(external_id),
     )
+
+
+def semantic_fingerprint(message: ParsedMessage) -> str:
+    return "\0".join(
+        [
+            message.text or "",
+            message.sender_external_id or "",
+            message.sender_name or "",
+            message.direction or "",
+            message.thread_external_id or "",
+            message.attachment_placeholder or "",
+            "1" if message.deleted else "0",
+        ]
+    )
+
+
+def _parse_pane(
+    pane: DomNode,
+    *,
+    conversation_id: str,
+    current_user: ParsedIdentity,
+    page_url: str,
+    in_thread_pane: bool,
+) -> list[ParsedMessage]:
+    messages: list[ParsedMessage] = []
+    last_sender: ParsedIdentity | None = None
+    roots = find_canonical_message_roots(pane)
+    mixed = roots + [node for node in find_divider_nodes(pane) if node not in roots]
+    ordered: list[DomNode] = []
+    seen_nodes: set[int] = set()
+    for node in pane.iter():
+        if node in mixed and id(node) not in seen_nodes:
+            seen_nodes.add(id(node))
+            ordered.append(node)
+    for node in ordered:
+        if node not in roots:
+            last_sender = None
+            continue
+        explicit = parse_sender(node)
+        inherited = False
+        sender = explicit
+        if not explicit.explicit and last_sender is not None:
+            sender = last_sender
+            inherited = True
+        elif explicit.explicit:
+            last_sender = explicit
+        parsed = parse_message_node(
+            node,
+            conversation_id=conversation_id,
+            current_user=current_user,
+            page_url=page_url,
+            sender=sender,
+            in_thread_pane=in_thread_pane,
+            inherited=inherited,
+        )
+        if parsed is None:
+            continue
+        messages.append(parsed)
+    return messages
 
 
 def parse_slack_dom(html: str, url: str = "") -> ParsedPage:
@@ -714,26 +1031,54 @@ def parse_slack_dom(html: str, url: str = "") -> ParsedPage:
     conversation = parse_conversation(root, url)
     current_user = parse_current_user(root)
     conversation_id = conversation.external_id if conversation else conversation_id_from_url(url) or "unknown"
+    main_pane = find_message_pane(root) or root
+    thread_pane = find_thread_pane(root)
+    raw_candidates = sum(1 for node in main_pane.iter() if _is_known_wrapper(node) or _own_stable_ts(node))
+    if thread_pane is not None:
+        raw_candidates += sum(1 for node in thread_pane.iter() if _is_known_wrapper(node) or _own_stable_ts(node))
+    canonical = find_canonical_message_roots(main_pane)
+    if thread_pane is not None:
+        canonical = canonical + find_canonical_message_roots(thread_pane)
     messages: list[ParsedMessage] = []
     seen_ids: set[str] = set()
-    search_root = root
-    for node in find_rendered_messages(search_root):
-        parsed = parse_message_node(
-            node,
+    inherited_sender = sum(1 for item in messages if item.sender_inherited)
+    for parsed in _parse_pane(
+        main_pane,
+        conversation_id=conversation_id,
+        current_user=current_user,
+        page_url=url,
+        in_thread_pane=False,
+    ) + (
+        _parse_pane(
+            thread_pane,
             conversation_id=conversation_id,
             current_user=current_user,
             page_url=url,
+            in_thread_pane=True,
         )
-        if parsed is None:
-            continue
+        if thread_pane is not None
+        else []
+    ):
         if parsed.external_id in seen_ids:
             continue
         seen_ids.add(parsed.external_id)
         messages.append(parsed)
+    diagnostics = ParsedDiagnostics(
+        candidates=raw_candidates,
+        canonical_roots=len(canonical),
+        parsed=len(messages),
+        skipped_low_confidence=max(0, len(canonical) - len(messages)),
+        stable_ts=sum(1 for item in messages if not item.browser_fallback_id),
+        fallback_ids=sum(1 for item in messages if item.browser_fallback_id),
+        inherited_sender=inherited_sender,
+        unknown_direction=sum(1 for item in messages if item.direction == "unknown"),
+        missing_sender=sum(1 for item in messages if not item.sender_name and not item.sender_external_id),
+    )
     workspace_present = conversation is not None or bool(conversation_id_from_url(url))
     return ParsedPage(
         conversation=conversation,
         current_user=current_user,
         messages=tuple(messages),
         workspace_present=workspace_present,
+        diagnostics=diagnostics,
     )

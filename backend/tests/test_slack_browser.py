@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.config import PROJECT_ROOT, Settings
 from app.enums import MessageDirection, Platform
-from app.integrations.factory import get_slack_adapter
+from app.integrations.factory import get_slack_adapter, get_telegram_adapter, get_typex_adapter
+from app.integrations.mock import MockTelegramAdapter, MockTypeXAdapter
 from app.integrations.slack_errors import SlackConfigurationError
 from app.models import AIAnalysis, Chat, Message
 from app.schemas.slack_browser import SlackBrowserConversation, SlackBrowserEventsPayload, SlackBrowserMessage
 from app.services.slack_browser import ingest_slack_browser_events
 from app.services.sync_runtime import get_sync_runtime, reset_sync_runtime
+from app.services.translation_queue import take_pending_ids
 
 BROWSER_TOKEN = "local-cas-browser-token"
 EXTENSION_DIR = PROJECT_ROOT / "browser-extension" / "slack-reader"
@@ -129,6 +131,50 @@ def test_normalized_message_ingested(
     chat = db_session.scalars(select(Chat)).one()
     assert chat.platform is Platform.SLACK
     assert chat.external_id == "C0OFFERS1"
+
+
+def test_noise_only_payload_does_not_rename_existing_chat(
+    browser_mode: Settings,
+    api_client: TestClient,
+    db_session: Session,
+) -> None:
+    reset_sync_runtime()
+    api_client.post("/integrations/slack-browser/events", json=_payload(), headers=_headers())
+    noise = _payload()
+    noise["conversation"] = {"external_id": "C0OFFERS1", "name": "general", "type": "channel"}
+    noise["messages"] = [
+        {
+            "external_id": "b_today",
+            "sender_external_id": None,
+            "sender_name": "Unknown",
+            "timestamp": "1710000900.000100",
+            "text": "Today",
+            "direction": "unknown",
+        }
+    ]
+    response = api_client.post("/integrations/slack-browser/events", json=noise, headers=_headers())
+    assert response.status_code == 200
+    chat = db_session.scalars(select(Chat)).one()
+    assert chat.external_id == "C0OFFERS1"
+    assert chat.name == "offers"
+
+
+def test_different_conversation_ids_create_separate_chats(
+    browser_mode: Settings,
+    api_client: TestClient,
+    db_session: Session,
+) -> None:
+    reset_sync_runtime()
+    first = _payload()
+    second = _payload()
+    second["conversation"] = {"external_id": "D0ACTIVE1", "name": "Alex Partner", "type": "direct"}
+    second["messages"][0]["external_id"] = "1710002800.000100"
+    second["messages"][0]["timestamp"] = "1710002800.000100"
+    api_client.post("/integrations/slack-browser/events", json=first, headers=_headers())
+    api_client.post("/integrations/slack-browser/events", json=second, headers=_headers())
+    chats = db_session.scalars(select(Chat).order_by(Chat.external_id)).all()
+    assert [chat.external_id for chat in chats] == ["C0OFFERS1", "D0ACTIVE1"]
+    assert {chat.name for chat in chats} == {"offers", "Alex Partner"}
 
 
 def test_date_divider_payloads_are_skipped(
@@ -393,3 +439,54 @@ def test_extension_source_has_no_credential_theft() -> None:
     assert "chrome.debugger" not in blob
     assert "MutationObserver" in blob
     assert "message-list" in blob
+    manifest_text = (EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8")
+    assert "all_frames" not in manifest_text
+    content = (EXTENSION_DIR / "content-script.js").read_text(encoding="utf-8")
+    assert "window.top !== window.self" in content
+    assert "findMessagePane" in content
+    assert "activeConversationId" in content
+    assert "attachPaneObserver" in content
+    assert "conversation-change" in content
+    assert "capture-now" in content
+    assert "autoCapture" in content
+    assert "slack-browser-heartbeat" in content
+    assert "semanticFingerprint" in content
+    assert "isSemanticMutation" in content
+    parser = (EXTENSION_DIR / "slackDomParser.js").read_text(encoding="utf-8")
+    assert "findCanonicalMessageRoots" in parser
+    assert "sanitizeCurrentSlackDom" in parser
+    assert "characterData: false" in content
+    assert "observer.observe(root" not in content
+    assert "paneObserver.observe(pane" in content
+
+
+def test_translation_can_enqueue_after_browser_commit(browser_mode: Settings, db_session: Session) -> None:
+    take_pending_ids()
+    ingest_slack_browser_events(db_session, SlackBrowserEventsPayload.model_validate(_payload()))
+    db_session.commit()
+    pending = take_pending_ids()
+    assert len(pending) == 1
+
+
+def test_typex_unaffected_by_browser_ingest(
+    browser_mode: Settings,
+    api_client: TestClient,
+    db_session: Session,
+) -> None:
+    before = db_session.scalar(select(func.count()).select_from(Chat).where(Chat.platform == Platform.TYPEX)) or 0
+    api_client.post("/integrations/slack-browser/events", json=_payload(), headers=_headers())
+    after = db_session.scalar(select(func.count()).select_from(Chat).where(Chat.platform == Platform.TYPEX)) or 0
+    assert after == before
+    assert isinstance(get_typex_adapter(), MockTypeXAdapter)
+
+
+def test_telegram_unaffected_by_browser_ingest(
+    browser_mode: Settings,
+    api_client: TestClient,
+    db_session: Session,
+) -> None:
+    before = db_session.scalar(select(func.count()).select_from(Chat).where(Chat.platform == Platform.TELEGRAM)) or 0
+    api_client.post("/integrations/slack-browser/events", json=_payload(), headers=_headers())
+    after = db_session.scalar(select(func.count()).select_from(Chat).where(Chat.platform == Platform.TELEGRAM)) or 0
+    assert after == before
+    assert isinstance(get_telegram_adapter(), MockTelegramAdapter)

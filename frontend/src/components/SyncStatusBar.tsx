@@ -82,7 +82,7 @@ function notificationRow(health: SlackNotificationHealth): { badge: Badge; detai
   return { badge: { label: "Slack notifications not detected", tone: "idle" }, detail: "Open Slack Desktop" };
 }
 function slackRow(platform: PlatformSyncStatus, slackMode: string, autoEnabled: boolean): { label: string; badge: Badge; detail: string } {
-  if (slackMode === "browser") {
+  if (slackMode === "browser" || platform.browser_connected) {
     if (platform.browser_connected) {
       return {
         label: "Slack Browser",

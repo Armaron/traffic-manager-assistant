@@ -259,15 +259,26 @@ export function InboxPage() {
       }
       polling = true;
       try {
-        const [status, notifications] = await Promise.all([
+        const [status, notifications, slack] = await Promise.all([
           fetchSyncStatus(),
           fetchSlackNotificationHealth().catch(() => null),
+          fetchSlackHealth().catch(() => null),
         ]);
         if (cancelled) {
           return;
         }
         setSyncStatus(status);
-        setSlackBrowserConnected(Boolean(status.slack.browser_connected));
+        if (slack) {
+          setSlackMode(slack.mode);
+          setSlackConfigured(slack.configured);
+          setSlackAuthenticated(slack.authenticated);
+          setSlackSocketConfigured(slack.socket_configured);
+          setSlackSocketConnected(slack.socket_connected);
+          setSlackSyncReady(slack.sync_ready);
+          setSlackBrowserConnected(Boolean(slack.browser_connected));
+        } else {
+          setSlackBrowserConnected(Boolean(status.slack.browser_connected));
+        }
         if (notifications) {
           setSlackNotificationHealth(notifications);
         }

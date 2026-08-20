@@ -80,8 +80,11 @@ function slackStatusLabel(
   socketConnected: boolean,
   browserConnected = false,
 ): string {
-  if (mode === "browser") {
+  if (mode === "browser" || browserConnected) {
     return browserConnected ? "Slack Browser: connected" : "Slack Browser: open Slack Web to sync";
+  }
+  if (mode === "mock") {
+    return "Slack: mock";
   }
   if (mode !== "real") {
     return "Slack: not configured";

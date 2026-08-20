@@ -6,7 +6,11 @@ from app.config import PROJECT_ROOT
 from app.integrations.slack_dom_parser import (
     conversation_id_from_url,
     fallback_message_id,
+    find_canonical_message_roots,
+    find_message_pane,
+    parse_html,
     parse_slack_dom,
+    semantic_fingerprint,
 )
 
 FIXTURES = PROJECT_ROOT / "browser-extension" / "slack-reader" / "fixtures"
@@ -160,3 +164,166 @@ def test_header_chrome_stripped_from_body() -> None:
     assert second.sender_name == "Igor Amchislavski"
     assert second.text == "ok"
     assert second.direction == "outgoing"
+
+
+def test_one_real_message_is_exactly_one_parsed_message() -> None:
+    page = parse_slack_dom(_load("dm-incoming.html"), DM_URL)
+    assert len(page.messages) == 1
+
+
+def test_nested_wrappers_collapse_to_one_root() -> None:
+    html = _load("nested-wrappers.html")
+    root = parse_html(html)
+    pane = find_message_pane(root)
+    assert pane is not None
+    assert len(find_canonical_message_roots(pane)) == 1
+    page = parse_slack_dom(html, CHANNEL_URL)
+    assert len(page.messages) == 1
+    assert page.messages[0].text == "Need a higher CPA for KR"
+    assert page.messages[0].external_id == "1710001100.000100"
+
+
+def test_virtualized_rerender_keeps_stable_id() -> None:
+    first = parse_slack_dom(_load("virtualized-rerender.html"), CHANNEL_URL).messages[0]
+    second = parse_slack_dom(_load("virtualized-rerender-b.html"), CHANNEL_URL).messages[0]
+    assert first.external_id == second.external_id == "1710002600.000100"
+    assert first.text == second.text == "Still on screen"
+
+
+def test_reaction_does_not_change_text_or_fingerprint() -> None:
+    plain = parse_slack_dom(_load("cpa-plain.html"), CHANNEL_URL).messages[0]
+    reacted = parse_slack_dom(_load("reaction-added.html"), CHANNEL_URL).messages[0]
+    assert reacted.text == "Can you check CPA?"
+    assert plain.text == reacted.text
+    assert plain.external_id == reacted.external_id
+    assert semantic_fingerprint(plain) == semantic_fingerprint(reacted)
+    assert "👍" not in reacted.text
+
+
+def test_hover_toolbar_does_not_enter_body() -> None:
+    plain = parse_slack_dom(_load("cpa-plain.html"), CHANNEL_URL).messages[0]
+    hovered = parse_slack_dom(_load("hover-toolbar.html"), CHANNEL_URL).messages[0]
+    assert hovered.text == "Can you check CPA?"
+    assert "Add reaction" not in hovered.text
+    assert "Reply" not in hovered.text
+    assert "More actions" not in hovered.text
+    assert hovered.text == plain.text or hovered.external_id != plain.external_id
+
+
+def test_thread_count_does_not_change_text() -> None:
+    page = parse_slack_dom(_load("thread-count.html"), CHANNEL_URL)
+    assert len(page.messages) == 1
+    assert page.messages[0].text == "Can you check CPA?"
+    assert "replies" not in page.messages[0].text.lower()
+
+
+def test_explicit_sender_and_grouped_inheritance() -> None:
+    page = parse_slack_dom(_load("grouped-continuation.html"), DM_URL)
+    assert len(page.messages) == 3
+    assert [item.text for item in page.messages] == ["message one", "message two", "message three"]
+    assert {item.sender_external_id for item in page.messages} == {"U222AAA"}
+    assert {item.sender_name for item in page.messages} == {"Alex Partner"}
+    assert {item.direction for item in page.messages} == {"incoming"}
+    assert page.messages[0].sender_inherited is False
+    assert page.messages[1].sender_inherited is True
+    assert page.messages[2].sender_inherited is True
+
+
+def test_inheritance_stops_at_divider() -> None:
+    page = parse_slack_dom(_load("date-unread-dividers.html"), CHANNEL_URL)
+    assert [item.text for item in page.messages] == ["before divider", "after divider"]
+    assert all(item.text not in {"Today", "New", "Сегодня"} for item in page.messages)
+    assert page.messages[0].sender_name == "Alex Partner"
+    assert page.messages[1].sender_inherited is False
+    assert page.messages[1].sender_name is None
+
+
+def test_outgoing_and_incoming_stable_ids() -> None:
+    page = parse_slack_dom(_load("direction-ids.html"), CHANNEL_URL)
+    outgoing, incoming = page.messages
+    assert outgoing.direction == "outgoing"
+    assert outgoing.sender_external_id == "U_SELF"
+    assert incoming.direction == "incoming"
+    assert incoming.sender_external_id == "U222AAA"
+
+
+def test_permalink_timestamp_identity() -> None:
+    page = parse_slack_dom(_load("permalink-ts.html"), CHANNEL_URL)
+    assert len(page.messages) == 1
+    assert page.messages[0].external_id == "1710002200.000300"
+    assert page.messages[0].browser_fallback_id is False
+
+
+def test_low_confidence_garbage_skipped() -> None:
+    page = parse_slack_dom(_load("low-confidence-garbage.html"), CHANNEL_URL)
+    assert [item.text for item in page.messages] == ["Real message"]
+    assert all("Reply" not in item.text and "More actions" not in item.text for item in page.messages)
+
+
+def test_image_avatar_ignored_and_caption_kept() -> None:
+    page = parse_slack_dom(_load("image-with-avatar.html"), CHANNEL_URL)
+    assert len(page.messages) == 1
+    assert page.messages[0].attachment_placeholder == "image"
+    assert page.messages[0].text == "Banner v2 for review\n[Image]"
+
+
+def test_file_caption_retained() -> None:
+    page = parse_slack_dom(_load("file-with-caption.html"), CHANNEL_URL)
+    assert page.messages[0].attachment_placeholder == "file"
+    assert page.messages[0].text == "Media kit\n[File]"
+
+
+def test_thread_pane_dedup_and_reply_marker() -> None:
+    page = parse_slack_dom(_load("thread-pane.html"), CHANNEL_URL)
+    ids = [item.external_id for item in page.messages]
+    assert ids == ["1710001900.000100", "1710001901.000200"]
+    reply = page.messages[1]
+    assert reply.thread_external_id == "1710001900.000100"
+    assert reply.text == "Thread reply body"
+
+
+def test_chronological_dom_order() -> None:
+    page = parse_slack_dom(_load("chronological-order.html"), CHANNEL_URL)
+    assert [item.text for item in page.messages] == ["alpha", "bravo", "charlie"]
+
+
+def test_conversation_id_prefers_active_pane_not_url() -> None:
+    page = parse_slack_dom(_load("real-style-dm.html"), DM_URL)
+    assert page.conversation is not None
+    assert page.conversation.external_id == "D0STYLE01"
+    assert page.conversation.name == "Alex Partner"
+    assert "Direct message" not in page.conversation.name
+
+
+def test_dm_conversation_id_from_message_permalink() -> None:
+    page = parse_slack_dom(_load("dm-permalink-id.html"), "https://app.slack.com/client/T0WORKSPACE")
+    assert page.conversation is not None
+    assert page.conversation.external_id == "D0PERMDM1"
+    assert page.conversation.type == "direct"
+    assert page.conversation.name == "Alex Partner"
+    assert len(page.messages) == 1
+    assert page.messages[0].text == "Need a higher CPA for KR"
+
+
+def test_conversation_id_ignores_sidebar_and_stale_url() -> None:
+    page = parse_slack_dom(_load("sidebar-channel-id.html"), CHANNEL_URL)
+    assert page.conversation is not None
+    assert page.conversation.external_id == "D0ACTIVE1"
+    assert page.conversation.name == "Alex Partner"
+    assert len(page.messages) == 1
+    assert page.messages[0].text == "Need a higher CPA for KR"
+
+
+def test_accessibility_duplicate_text_not_in_body() -> None:
+    page = parse_slack_dom(_load("accessibility-duplicate.html"), CHANNEL_URL)
+    assert len(page.messages) == 1
+    assert page.messages[0].text == "Visible body"
+    assert page.messages[0].sender_name == "Alex Partner"
+    assert page.conversation is not None
+    assert page.conversation.name == "offers"
+
+
+def test_hidden_sender_not_copied_into_body() -> None:
+    page = parse_slack_dom(_load("hidden-sender.html"), CHANNEL_URL)
+    assert all("Hidden sender" not in item.text for item in page.messages)
+    assert page.messages[0].text == "Visible continuation body"
