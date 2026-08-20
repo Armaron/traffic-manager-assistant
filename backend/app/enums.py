@@ -59,6 +59,7 @@ class DirectionSource(StrEnum):
     STABLE_ID = "stable_id"
     PROFILE_NAME = "profile_name"
     MANUAL = "manual"
+    NOTIFICATION = "notification"
     UNKNOWN = "unknown"
 
 

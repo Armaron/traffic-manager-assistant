@@ -101,6 +101,17 @@ export function MessageBubble({
           <time dateTime={message.timestamp}>{formatMessageTime(message.timestamp)}</time>
         </div>
         {body ? <p>{body}</p> : null}
+        {message.raw_data?.source === "notification_capture" ? (
+          <p className="message-bubble__source">
+            Slack · Windows notification
+            {message.raw_data.notification_truncated === true ? (
+              <span className="message-bubble__source-warn">
+                {" "}
+                · Получено из уведомления Windows · текст может быть неполным
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {showCompleted ? (
           <div className="message-bubble__translation">
             <span className="message-bubble__lang">RU</span>

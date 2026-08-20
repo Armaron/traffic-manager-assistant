@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CAS Slack Reader</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Traffic Manager Assistant</p>
+      <h1>Slack Browser Reader</h1>
+      <p id="status" class="status">Checking Slack tab…</p>
+      <label class="toggle">
+        <input id="auto-capture" type="checkbox" />
+        Auto capture
+      </label>
+      <button id="capture" type="button">Capture current conversation</button>
+      <label class="field">
+        Backend
+        <input id="backend-url" type="text" spellcheck="false" />
+      </label>
+      <label class="field">
+        Local token
+        <input id="local-token" type="password" spellcheck="false" autocomplete="off" />
+      </label>
+      <p class="hint">
+        Runs only on app.slack.com. Sends normalized message text to 127.0.0.1. Does not read cookies or Slack credentials.
+      </p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

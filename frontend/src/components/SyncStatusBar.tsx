@@ -1,8 +1,10 @@
-import type { PlatformSyncStatus, SyncStatus } from "../types/inbox";
+import type { PlatformSyncStatus, SlackNotificationHealth, SyncStatus } from "../types/inbox";
 import { formatSyncAge } from "../utils/format";
 
 type SyncStatusBarProps = {
   status: SyncStatus | null;
+  slackMode?: string;
+  slackNotifications?: SlackNotificationHealth | null;
   toggling?: boolean;
   onToggleAutoSync: (enabled: boolean) => void;
 };
@@ -64,27 +66,69 @@ function detailFor(platform: PlatformSyncStatus): string {
   return `Synced ${formatSyncAge(platform.last_success_at)}`;
 }
 
-function PlatformRow({ label, platform, autoEnabled }: {
-  label: string;
-  platform: PlatformSyncStatus;
-  autoEnabled: boolean;
-}) {
-  const badge = badgeFor(platform, autoEnabled);
+function notificationRow(health: SlackNotificationHealth): { badge: Badge; detail: string } {
+  if (health.helper_connected && health.permission_allowed && health.slack_source_detected) {
+    return {
+      badge: { label: "Connected", tone: "ok" },
+      detail: health.last_event_at ? `Last event ${formatSyncAge(health.last_event_at)}` : "Waiting for Slack toasts",
+    };
+  }
+  if (health.helper_connected && !health.permission_allowed) {
+    return { badge: { label: "Windows permission required", tone: "warn" }, detail: "Allow notification access" };
+  }
+  if (!health.helper_connected) {
+    return { badge: { label: "Listener not running", tone: "idle" }, detail: "Запустите Notification Listener" };
+  }
+  return { badge: { label: "Slack notifications not detected", tone: "idle" }, detail: "Open Slack Desktop" };
+}
+function slackRow(platform: PlatformSyncStatus, slackMode: string, autoEnabled: boolean): { label: string; badge: Badge; detail: string } {
+  if (slackMode === "browser") {
+    if (platform.browser_connected) {
+      return {
+        label: "Slack Browser",
+        badge: { label: "Connected", tone: "ok" },
+        detail: platform.last_event_at ? `Last event ${formatSyncAge(platform.last_event_at)}` : "Waiting for messages",
+      };
+    }
+    return {
+      label: "Slack Browser",
+      badge: { label: "Open Slack Web", tone: "idle" },
+      detail: "Open Slack Web to sync",
+    };
+  }
+  return {
+    label: slackMode === "real" ? "Slack API" : "Slack",
+    badge: badgeFor(platform, autoEnabled),
+    detail: detailFor(platform),
+  };
+}
+
+function PlatformRow({ label, badge, detail }: { label: string; badge: Badge; detail: string }) {
   return (
     <div className="sync-status__row">
       <span className="sync-status__name">{label}</span>
       <span className={`sync-dot sync-dot--${badge.tone}`} aria-hidden="true" />
       <span className="sync-status__badge">{badge.label}</span>
-      <span className="sync-status__detail">{detailFor(platform)}</span>
+      <span className="sync-status__detail">{detail}</span>
     </div>
   );
 }
 
-export function SyncStatusBar({ status, toggling = false, onToggleAutoSync }: SyncStatusBarProps) {
+export function SyncStatusBar({
+  status,
+  slackMode = "mock",
+  slackNotifications = null,
+  toggling = false,
+  onToggleAutoSync,
+}: SyncStatusBarProps) {
   if (!status) {
     return null;
   }
   const enabled = status.auto_sync_enabled;
+  const typexBadge = badgeFor(status.typex, enabled);
+  const telegramBadge = badgeFor(status.telegram, enabled);
+  const slack = slackRow(status.slack, slackMode, enabled);
+  const notifications = slackNotifications?.enabled ? notificationRow(slackNotifications) : null;
   return (
     <section className="sync-status" aria-label="Automatic sync status">
       <div className="sync-status__head">
@@ -103,9 +147,12 @@ export function SyncStatusBar({ status, toggling = false, onToggleAutoSync }: Sy
           <span className="switch__label">{enabled ? "On" : "Off"}</span>
         </button>
       </div>
-      <PlatformRow label="TypeX" platform={status.typex} autoEnabled={enabled} />
-      <PlatformRow label="Telegram" platform={status.telegram} autoEnabled={enabled} />
-      <PlatformRow label="Slack" platform={status.slack} autoEnabled={enabled} />
+      <PlatformRow label="TypeX" badge={typexBadge} detail={detailFor(status.typex)} />
+      <PlatformRow label="Telegram" badge={telegramBadge} detail={detailFor(status.telegram)} />
+      <PlatformRow label={slack.label} badge={slack.badge} detail={slack.detail} />
+      {notifications ? (
+        <PlatformRow label="Slack Notifications" badge={notifications.badge} detail={notifications.detail} />
+      ) : null}
       {enabled ? (
         <p className="sync-status__hint">Every {status.interval_seconds}s · read-only, no AI</p>
       ) : (

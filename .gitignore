@@ -22,10 +22,19 @@ data/backups/
 data/attachments/
 data/*.session
 data/*.session-journal
+data/slack_browser_token
+data/slack_notification_token
 *.session
 *.session-journal
 *.db
 *.log
+
+windows-notification-listener/**/bin/
+windows-notification-listener/**/obj/
+windows-notification-listener/layout/
+*.msix
+*.appx
+*.appxbundle
 
 .DS_Store
 Thumbs.db

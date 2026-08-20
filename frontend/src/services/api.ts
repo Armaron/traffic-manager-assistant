@@ -12,6 +12,7 @@ import type {
   TelegramHealth,
   TelegramSyncResult,
   SlackHealth,
+  SlackNotificationHealth,
   SlackSyncResult,
   TypeXHealth,
   TypeXSyncResult,
@@ -140,6 +141,10 @@ export function syncTelegram(): Promise<TelegramSyncResult> {
 
 export function fetchSlackHealth(): Promise<SlackHealth> {
   return request<SlackHealth>("/api/integrations/slack/health");
+}
+
+export function fetchSlackNotificationHealth(): Promise<SlackNotificationHealth> {
+  return request<SlackNotificationHealth>("/api/integrations/slack-notifications/health");
 }
 
 export function syncSlack(): Promise<SlackSyncResult> {

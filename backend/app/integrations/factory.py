@@ -43,6 +43,8 @@ def get_slack_adapter() -> MessengerAdapter:
     mode = (get_settings().slack_mode or "").strip().lower()
     if mode == "mock":
         return MockSlackAdapter()
+    if mode == "browser":
+        raise SlackConfigurationError("Slack browser mode does not use the Slack Web API")
     if mode == "real":
         return SlackAdapter.from_settings()
     raise SlackConfigurationError("Unknown Slack mode")

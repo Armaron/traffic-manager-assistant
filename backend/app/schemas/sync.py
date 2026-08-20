@@ -21,6 +21,9 @@ class PlatformSyncStatus(BaseModel):
     last_result: dict[str, int] | None = None
     socket_connected: bool = False
     last_event_at: datetime | None = None
+    browser_connected: bool = False
+    workspace_present: bool = False
+    last_heartbeat_at: datetime | None = None
 
     @classmethod
     def from_state(cls, state: PlatformSyncState) -> "PlatformSyncStatus":
@@ -40,6 +43,9 @@ class PlatformSyncStatus(BaseModel):
             last_result=state.last_result,
             socket_connected=state.socket_connected,
             last_event_at=state.last_event_at,
+            browser_connected=state.browser_connected,
+            workspace_present=state.workspace_present,
+            last_heartbeat_at=state.last_heartbeat_at,
         )
 
 
@@ -61,8 +67,10 @@ class SyncStatusResponse(BaseModel):
     @classmethod
     def from_runtime(cls, runtime: SyncRuntime) -> "SyncStatusResponse":
         from app.config import get_settings
+        from app.services.slack_browser import refresh_browser_connection
         from app.services.sync_runtime import SyncPlatform
 
+        refresh_browser_connection()
         return cls(
             auto_sync_enabled=runtime.auto_sync_enabled,
             interval_seconds=runtime.interval_seconds,

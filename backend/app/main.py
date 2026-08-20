@@ -5,9 +5,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
+from app.api.slack_browser import router as slack_browser_router
+from app.api.slack_notifications import router as slack_notifications_router
 from app.config import get_settings
 from app.database.session import init_db, sqlite_file_path
 from app.services.auto_sync import start_auto_sync, stop_auto_sync
+from app.services.slack_browser import ensure_slack_browser_token
+from app.services.slack_notifications import ensure_slack_notification_token
 from app.services.slack_events import (
     maybe_startup_slack_reconciliation,
     start_slack_events,
@@ -40,6 +44,8 @@ async def lifespan(_app: FastAPI):
         db_path.name if db_path else "memory",
     )
     reset_sync_runtime()
+    ensure_slack_browser_token(settings)
+    ensure_slack_notification_token(settings)
     await start_translation_workers()
     await start_slack_events()
     if get_sync_runtime().auto_sync_enabled:
@@ -67,9 +73,12 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
+    allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(api_router)
+app.include_router(slack_browser_router, prefix="/api")
+app.include_router(slack_notifications_router, prefix="/api")

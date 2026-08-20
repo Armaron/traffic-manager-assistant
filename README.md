@@ -176,6 +176,12 @@ Slack reads conversations visible to the authorized user. New messages arrive th
 
 Setup: [docs/slack_setup.md](docs/slack_setup.md). Keep `SLACK_MODE=mock` until tokens are in local `.env` (`SLACK_USER_TOKEN`, `SLACK_APP_TOKEN`). Never commit tokens.
 
+### Slack Browser Reader (no Slack App)
+
+`SLACK_MODE=browser` reads the already-open Slack Web tab through a local Chrome/Edge extension. No Slack App, OAuth, or Slack tokens. Setup: [docs/slack_browser_setup.md](docs/slack_browser_setup.md).
+
+Experimental Slack Desktop capture via Windows notifications (no Slack App): [windows-notification-listener/README.md](windows-notification-listener/README.md).
+
 ## Message translation
 
 Non-Russian inbox messages can show a Russian translation under the original text. The original stays authoritative. Translation is a convenience only: conversation analysis and drafts still use the source language. Existing history is not backfilled; new messages are translated in a background queue, and older ones only when a chat is opened (at most 10 at a time). Set `AUTO_TRANSLATE_ENABLED=false` to keep automatic translation off. Manual **Перевести** still works.

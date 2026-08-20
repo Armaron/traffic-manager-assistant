@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.api.deps import DbSession, http_for_slack, http_sync_in_progress
 from app.config import get_settings
@@ -8,6 +8,7 @@ from app.integrations.slack_client import slack_missing_configuration
 from app.integrations.slack_errors import SlackAuthenticationError, SlackError
 from app.schemas.inbox import SlackHealth, SlackSyncResult
 from app.services.platform_sync import run_slack_sync
+from app.services.slack_browser import refresh_browser_connection
 from app.services.slack_events import slack_socket_connected
 from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
 from app.services.translation_queue import discard_pending_translations, flush_pending_translations
@@ -30,6 +31,24 @@ async def slack_health() -> SlackHealth:
             socket_configured=True,
             socket_connected=False,
             sync_ready=True,
+        )
+    if mode == "browser":
+        from app.services.slack_browser import ensure_slack_browser_token, resolve_slack_browser_token
+
+        ensure_slack_browser_token(settings)
+        refresh_browser_connection()
+        state = get_sync_runtime().state(SyncPlatform.SLACK)
+        configured = bool(resolve_slack_browser_token(settings))
+        return SlackHealth(
+            mode=mode,
+            configured=configured,
+            authenticated=False,
+            socket_configured=False,
+            socket_connected=False,
+            sync_ready=False,
+            browser_connected=bool(state.browser_connected),
+            last_heartbeat_at=state.last_heartbeat_at,
+            workspace_present=bool(state.workspace_present),
         )
     if mode != "real":
         return SlackHealth(
@@ -85,6 +104,16 @@ async def slack_health() -> SlackHealth:
 
 @router.post("/sync", response_model=SlackSyncResult)
 async def slack_sync(db: DbSession) -> SlackSyncResult:
+    settings = get_settings()
+    mode = (settings.slack_mode or "").strip().lower()
+    if mode == "browser":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "slack_browser_mode",
+                "message": "Use the Slack Browser extension to capture messages.",
+            },
+        )
     runtime = get_sync_runtime()
     try:
         async with runtime.track(SyncPlatform.SLACK, manual=True) as run:

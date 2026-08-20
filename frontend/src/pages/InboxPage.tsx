@@ -14,6 +14,7 @@ import {
   fetchHealth,
   fetchSyncStatus,
   fetchSlackHealth,
+  fetchSlackNotificationHealth,
   fetchTelegramHealth,
   fetchTypeXHealth,
   queueChatTranslations,
@@ -35,6 +36,7 @@ import type {
   InboxFilter,
   MessageDirection,
   SyncStatus,
+  SlackNotificationHealth,
   TypeXSyncResult,
 } from "../types/inbox";
 import { readAutoTranslatePreference, writeAutoTranslatePreference } from "../utils/autoTranslate";
@@ -155,6 +157,8 @@ export function InboxPage() {
   const [slackSocketConfigured, setSlackSocketConfigured] = useState(false);
   const [slackSocketConnected, setSlackSocketConnected] = useState(false);
   const [slackSyncReady, setSlackSyncReady] = useState(false);
+  const [slackBrowserConnected, setSlackBrowserConnected] = useState(false);
+  const [slackNotificationHealth, setSlackNotificationHealth] = useState<SlackNotificationHealth | null>(null);
   const [appEnv, setAppEnv] = useState("");
   const [integrationsResolved, setIntegrationsResolved] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -173,7 +177,8 @@ export function InboxPage() {
     appEnv === "development" &&
     typexMode !== "real" &&
     telegramMode !== "real" &&
-    slackMode !== "real";
+    slackMode !== "real" &&
+    slackMode !== "browser";
 
   async function loadChats(preferredId?: number | null) {
     const items = await fetchChats();
@@ -254,11 +259,18 @@ export function InboxPage() {
       }
       polling = true;
       try {
-        const status = await fetchSyncStatus();
+        const [status, notifications] = await Promise.all([
+          fetchSyncStatus(),
+          fetchSlackNotificationHealth().catch(() => null),
+        ]);
         if (cancelled) {
           return;
         }
         setSyncStatus(status);
+        setSlackBrowserConnected(Boolean(status.slack.browser_connected));
+        if (notifications) {
+          setSlackNotificationHealth(notifications);
+        }
         const inboxChanged = status.inbox_generation !== generationRef.current;
         const translationChanged =
           status.translation_generation !== translationGenerationRef.current;
@@ -295,10 +307,11 @@ export function InboxPage() {
         }
         setConnection("connected");
         setAppEnv(health.app_env);
-        const [typex, telegram, slack] = await Promise.all([
+        const [typex, telegram, slack, notifications] = await Promise.all([
           fetchTypeXHealth(),
           fetchTelegramHealth().catch(() => null),
           fetchSlackHealth().catch(() => null),
+          fetchSlackNotificationHealth().catch(() => null),
         ]);
         if (!cancelled) {
           setTypexMode(typex.mode);
@@ -320,6 +333,10 @@ export function InboxPage() {
             setSlackSocketConfigured(slack.socket_configured);
             setSlackSocketConnected(slack.socket_connected);
             setSlackSyncReady(slack.sync_ready);
+            setSlackBrowserConnected(Boolean(slack.browser_connected));
+          }
+          if (notifications) {
+            setSlackNotificationHealth(notifications);
           }
           setIntegrationsResolved(true);
         }
@@ -446,6 +463,7 @@ export function InboxPage() {
       setSlackSocketConfigured(slack.socket_configured);
       setSlackSocketConnected(slack.socket_connected);
       setSlackSyncReady(slack.sync_ready);
+      setSlackBrowserConnected(Boolean(slack.browser_connected));
       setSyncNote(`${result.messages_created} new Slack messages`);
       setError("");
     } catch (err: unknown) {
@@ -588,6 +606,8 @@ export function InboxPage() {
         syncStatusPanel={
           <SyncStatusBar
             status={syncStatus}
+            slackMode={slackMode}
+            slackNotifications={slackNotificationHealth}
             toggling={autoSyncToggling}
             onToggleAutoSync={(enabled) => {
               void handleToggleAutoSync(enabled);
@@ -628,6 +648,7 @@ export function InboxPage() {
         slackSocketConfigured={slackSocketConfigured}
         slackSocketConnected={slackSocketConnected}
         slackSyncReady={slackSyncReady}
+        slackBrowserConnected={slackBrowserConnected}
         onSyncSlack={() => {
           void handleSyncSlack();
         }}

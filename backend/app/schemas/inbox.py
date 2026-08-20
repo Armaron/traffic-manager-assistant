@@ -103,6 +103,9 @@ class SlackHealth(BaseModel):
     socket_configured: bool = False
     socket_connected: bool = False
     sync_ready: bool = False
+    browser_connected: bool = False
+    last_heartbeat_at: datetime | None = None
+    workspace_present: bool = False
 
 
 class SlackSyncResult(BaseModel):

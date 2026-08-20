@@ -134,6 +134,9 @@ class PlatformSyncState:
     last_result: dict[str, int] | None = None
     socket_connected: bool = False
     last_event_at: datetime | None = None
+    browser_connected: bool = False
+    workspace_present: bool = False
+    last_heartbeat_at: datetime | None = None
 
     def status(self) -> str:
         if self.running:
@@ -145,7 +148,7 @@ class PlatformSyncState:
             or (self.last_error_at is not None and self.last_error_at >= self.last_success_at)
         ):
             return "error"
-        if self.last_success_at is not None or self.socket_connected:
+        if self.last_success_at is not None or self.socket_connected or self.browser_connected:
             return "ok"
         return "idle"
 

@@ -455,6 +455,16 @@ input::placeholder {
   color: var(--muted);
 }
 
+.message-bubble__source {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.message-bubble__source-warn {
+  color: var(--warning);
+}
+
 .message-bubble__thread {
   display: flex;
   align-items: center;
@@ -969,7 +979,7 @@ input::placeholder {
 }
 
 .sync-status__name {
-  min-width: 58px;
+  min-width: 92px;
   color: var(--text-muted);
 }
 

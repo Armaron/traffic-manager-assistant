@@ -38,6 +38,7 @@ type SidebarProps = {
   slackSocketConfigured?: boolean;
   slackSocketConnected?: boolean;
   slackSyncReady?: boolean;
+  slackBrowserConnected?: boolean;
   onSyncSlack?: () => void;
   slackSyncing?: boolean;
   syncNote?: string;
@@ -77,7 +78,11 @@ function slackStatusLabel(
   authenticated: boolean,
   socketConfigured: boolean,
   socketConnected: boolean,
+  browserConnected = false,
 ): string {
+  if (mode === "browser") {
+    return browserConnected ? "Slack Browser: connected" : "Slack Browser: open Slack Web to sync";
+  }
   if (mode !== "real") {
     return "Slack: not configured";
   }
@@ -149,6 +154,7 @@ export function Sidebar({
   slackSocketConfigured = false,
   slackSocketConnected = false,
   slackSyncReady = false,
+  slackBrowserConnected = false,
   onSyncSlack,
   slackSyncing = false,
   syncNote = "",
@@ -245,6 +251,7 @@ export function Sidebar({
                   slackAuthenticated,
                   slackSocketConfigured,
                   slackSocketConnected,
+                  slackBrowserConnected,
                 )}
               </p>
             </>

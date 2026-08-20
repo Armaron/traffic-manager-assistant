@@ -50,7 +50,7 @@ export type ChatDetail = {
 
 export type MessageDirection = "incoming" | "outgoing" | "unknown";
 
-export type DirectionSource = "native" | "stable_id" | "profile_name" | "manual" | "unknown";
+export type DirectionSource = "native" | "stable_id" | "profile_name" | "manual" | "notification" | "unknown";
 
 export type AttachmentKind = "image" | "file" | "voice" | "mixed";
 
@@ -96,6 +96,7 @@ export type ChatMessage = {
   attachments?: MessageAttachment[];
   media_placeholder?: MediaPlaceholder | null;
   translation?: MessageTranslation | null;
+  raw_data?: Record<string, unknown> | null;
 };
 
 export type SeedResult = {
@@ -121,6 +122,16 @@ export type TypeXHealth = {
   missing_required_tools: string[];
 };
 
+export type SlackNotificationHealth = {
+  enabled: boolean;
+  helper_connected: boolean;
+  permission_allowed: boolean;
+  slack_source_detected: boolean;
+  last_heartbeat_at: string | null;
+  last_event_at: string | null;
+  token_configured: boolean;
+};
+
 export type SlackHealth = {
   mode: string;
   configured: boolean;
@@ -128,6 +139,9 @@ export type SlackHealth = {
   socket_configured: boolean;
   socket_connected: boolean;
   sync_ready: boolean;
+  browser_connected?: boolean;
+  last_heartbeat_at?: string | null;
+  workspace_present?: boolean;
 };
 
 export type SlackSyncResult = {
@@ -207,6 +221,9 @@ export type PlatformSyncStatus = {
   last_result: Record<string, number> | null;
   socket_connected?: boolean;
   last_event_at?: string | null;
+  browser_connected?: boolean;
+  workspace_present?: boolean;
+  last_heartbeat_at?: string | null;
 };
 
 export type SyncStatus = {

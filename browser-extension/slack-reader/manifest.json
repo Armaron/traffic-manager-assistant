@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "CAS Slack Browser Reader",
+  "version": "0.1.2",
+  "description": "Reads visible Slack Web messages and sends normalized text to the local Traffic Manager Assistant backend.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://app.slack.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "CAS Slack Reader",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.slack.com/*"],
+      "js": ["slackDomParser.js", "content-script.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
