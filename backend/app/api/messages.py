@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import DbSession
 from app.enums import AttachmentKind
 from app.models import Message, MessageAttachment
-from app.schemas.message import MessageDirectionUpdate, MessageRead
+from app.schemas.message import MessageDirectionUpdate, MessageRead, TranslateRequest
 from app.services.attachment_storage import resolve_storage_key
 from app.services.message_direction import set_message_direction
+from app.services.message_translation import async_translate_message, to_message_read
+from app.services.sync_runtime import get_sync_runtime
 from app.services.thumbnails import thumbnail_for
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -31,11 +33,40 @@ def patch_message_direction(
         raise HTTPException(status_code=404, detail="Message not found")
     db.commit()
     message = db.scalar(
-        select(Message).options(selectinload(Message.attachments)).where(Message.id == message_id)
+        select(Message)
+        .options(selectinload(Message.attachments), selectinload(Message.translations))
+        .where(Message.id == message_id)
     )
     if message is None:
         raise HTTPException(status_code=404, detail="Message not found")
-    return MessageRead.model_validate(message)
+    return to_message_read(message)
+
+
+@router.post("/{message_id}/translate", response_model=MessageRead)
+async def translate_message(
+    message_id: int,
+    db: DbSession,
+    payload: TranslateRequest | None = None,
+) -> MessageRead:
+    message = db.scalar(
+        select(Message)
+        .options(selectinload(Message.attachments), selectinload(Message.translations))
+        .where(Message.id == message_id)
+    )
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    force = bool(payload.force) if payload is not None else False
+    await async_translate_message(db, message, force=force)
+    db.commit()
+    get_sync_runtime().bump_translation_generation()
+    message = db.scalar(
+        select(Message)
+        .options(selectinload(Message.attachments), selectinload(Message.translations))
+        .where(Message.id == message_id)
+    )
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return to_message_read(message)
 
 
 def _attachment_path(db: Session, message_id: int, attachment_id: int) -> tuple[MessageAttachment, Path]:

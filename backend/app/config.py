@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     auto_sync_max_backoff_seconds: int = 300
     auto_sync_platform_timeout_seconds: int = 60
     auto_sync_startup_delay_seconds: float = 4.0
+    auto_translate_enabled: bool = True
+    translation_target_language: str = "ru"
+    translation_min_text_length: int = 4
+    translation_max_chars: int = 6000
+    translation_concurrency: int = 2
+    translation_provider: str = "openrouter"
     ai_provider: str = "mock"
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None

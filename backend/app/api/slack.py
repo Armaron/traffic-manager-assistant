@@ -10,6 +10,7 @@ from app.schemas.inbox import SlackHealth, SlackSyncResult
 from app.services.platform_sync import run_slack_sync
 from app.services.slack_events import slack_socket_connected
 from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
+from app.services.translation_queue import discard_pending_translations, flush_pending_translations
 
 router = APIRouter(prefix="/integrations/slack", tags=["slack"])
 
@@ -93,16 +94,20 @@ async def slack_sync(db: DbSession) -> SlackSyncResult:
                 settings=get_settings(),
             )
             db.commit()
+            flush_pending_translations()
             run.succeeded(result)
             return result
     except SyncInProgressError:
         raise http_sync_in_progress() from None
     except SlackAuthenticationError as exc:
         db.rollback()
+        discard_pending_translations()
         raise http_for_slack(exc) from None
     except SlackError as exc:
         db.rollback()
+        discard_pending_translations()
         raise http_for_slack(exc) from None
     except Exception:
         db.rollback()
+        discard_pending_translations()
         raise

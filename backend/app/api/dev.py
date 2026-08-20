@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.schemas.inbox import AnalyzeAllResult, SeedResult
 from app.services.analysis import analyze_all_chats
 from app.services.seed import seed_mock_inbox
+from app.services.translation_queue import flush_pending_translations
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
@@ -19,6 +20,7 @@ async def seed_development_data(db: DbSession) -> SeedResult:
 
     result = await seed_mock_inbox(db)
     db.commit()
+    flush_pending_translations()
     return result
 
 

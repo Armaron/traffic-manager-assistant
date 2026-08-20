@@ -176,6 +176,10 @@ Slack reads conversations visible to the authorized user. New messages arrive th
 
 Setup: [docs/slack_setup.md](docs/slack_setup.md). Keep `SLACK_MODE=mock` until tokens are in local `.env` (`SLACK_USER_TOKEN`, `SLACK_APP_TOKEN`). Never commit tokens.
 
+## Message translation
+
+Non-Russian inbox messages can show a Russian translation under the original text. The original stays authoritative. Translation is a convenience only: conversation analysis and drafts still use the source language. Existing history is not backfilled; new messages are translated in a background queue, and older ones only when a chat is opened (at most 10 at a time). Set `AUTO_TRANSLATE_ENABLED=false` to keep automatic translation off. Manual **Перевести** still works.
+
 ## Next step
 
 Knowledge Base (Phase 9) is not started. Slack is the third read-only inbox source alongside TypeX and Telegram.

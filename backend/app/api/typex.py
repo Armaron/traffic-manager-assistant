@@ -10,6 +10,7 @@ from app.integrations.typex_readiness import TypeXSyncReadiness, mock_typex_sync
 from app.schemas.inbox import TypeXHealth, TypeXSyncResult
 from app.services.platform_sync import adapter_sync_readiness, run_typex_sync
 from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
+from app.services.translation_queue import discard_pending_translations, flush_pending_translations
 
 router = APIRouter(prefix="/integrations/typex", tags=["typex"])
 
@@ -82,13 +83,16 @@ async def typex_sync(db: DbSession) -> TypeXSyncResult:
         async with runtime.track(SyncPlatform.TYPEX, manual=True) as run:
             result = await run_typex_sync(db, adapter=get_typex_adapter(), settings=get_settings())
             db.commit()
+            flush_pending_translations()
             run.succeeded(result)
             return result
     except SyncInProgressError:
         raise http_sync_in_progress() from None
     except TypeXError as exc:
         db.rollback()
+        discard_pending_translations()
         raise http_for_typex(exc) from None
     except Exception:
         db.rollback()
+        discard_pending_translations()
         raise

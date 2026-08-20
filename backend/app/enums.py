@@ -69,6 +69,13 @@ class AttachmentKind(StrEnum):
     MIXED = "mixed"
 
 
+class TranslationStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 def legacy_is_outgoing(direction: MessageDirection) -> bool:
     """Legacy boolean: True only for outgoing. Never use this to detect incoming."""
     return direction == MessageDirection.OUTGOING

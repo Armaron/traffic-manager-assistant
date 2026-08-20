@@ -55,6 +55,10 @@ class Message(Base):
         back_populates="message",
         cascade="all, delete-orphan",
     )
+    translations: Mapped[list["MessageTranslation"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan",
+    )
 
 
 def _sync_legacy_direction(target: Message) -> None:

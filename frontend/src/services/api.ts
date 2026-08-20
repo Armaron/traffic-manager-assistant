@@ -166,3 +166,16 @@ export function updateMessageDirection(
     body: JSON.stringify({ direction }),
   });
 }
+
+export function translateMessage(messageId: number, force = false): Promise<ChatMessage> {
+  return request<ChatMessage>(`/api/messages/${messageId}/translate`, {
+    method: "POST",
+    body: JSON.stringify({ force }),
+  });
+}
+
+export function queueChatTranslations(chatId: number): Promise<{ queued: number }> {
+  return request<{ queued: number }>(`/api/chats/${chatId}/translations/queue`, {
+    method: "POST",
+  });
+}

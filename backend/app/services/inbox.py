@@ -117,7 +117,7 @@ def list_messages(session: Session, chat_id: int) -> list[Message]:
     return list(
         session.scalars(
             select(Message)
-            .options(selectinload(Message.attachments))
+            .options(selectinload(Message.attachments), selectinload(Message.translations))
             .where(Message.chat_id == chat_id)
             .order_by(Message.timestamp.asc(), Message.id.asc())
         ).all()

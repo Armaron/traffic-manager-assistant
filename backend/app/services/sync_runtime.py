@@ -167,6 +167,11 @@ class SyncRuntime:
     max_backoff_seconds: int
     auto_sync_enabled: bool
     inbox_generation: int = 0
+    translation_generation: int = 0
+    translation_requests: int = 0
+    translation_cache_hits: int = 0
+    translation_skipped: int = 0
+    translation_failed: int = 0
     _locks: dict[SyncPlatform, asyncio.Lock] = field(default_factory=dict)
     _states: dict[SyncPlatform, PlatformSyncState] = field(default_factory=dict)
 
@@ -194,6 +199,28 @@ class SyncRuntime:
 
     def set_auto_sync_enabled(self, enabled: bool) -> None:
         self.auto_sync_enabled = enabled
+
+    def bump_translation_generation(self) -> None:
+        """UI refresh for translations only. Must not look like a new inbox message."""
+        self.translation_generation += 1
+
+    def note_translation(
+        self,
+        *,
+        completed: bool = False,
+        cache_hit: bool = False,
+        skipped: bool = False,
+        failed: bool = False,
+    ) -> None:
+        if completed:
+            self.translation_requests += 1
+        if cache_hit:
+            self.translation_cache_hits += 1
+        if skipped:
+            self.translation_skipped += 1
+        if failed:
+            self.translation_failed += 1
+            self.translation_requests += 1
 
     def note_slack_event(self, result: object) -> None:
         state = self.state(SyncPlatform.SLACK)

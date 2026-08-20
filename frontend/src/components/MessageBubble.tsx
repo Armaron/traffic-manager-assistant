@@ -28,8 +28,10 @@ type MessageBubbleProps = {
   message: ChatMessage;
   grouped?: boolean;
   highlighted?: boolean;
+  translating?: boolean;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
   onShowThreadRoot?: () => void;
+  onTranslate?: (messageId: number, force: boolean) => void;
 };
 
 function messageSide(message: ChatMessage): "incoming" | "outgoing" | "unknown" {
@@ -66,8 +68,10 @@ export function MessageBubble({
   message,
   grouped = false,
   highlighted = false,
+  translating = false,
   onDirectionChange,
   onShowThreadRoot,
+  onTranslate,
 }: MessageBubbleProps) {
   const [zoomed, setZoomed] = useState<MessageAttachment | null>(null);
   const side = messageSide(message);
@@ -78,6 +82,11 @@ export function MessageBubble({
   const others = attachments.filter((item) => !isImage(item));
   const placeholder = message.media_placeholder ?? null;
   const body = placeholder ? placeholder.caption : message.text;
+  const translation = message.translation ?? null;
+  const showCompleted =
+    translation?.status === "completed" && Boolean(translation.translated_text);
+  const showRetry = translation?.status === "failed";
+  const showTranslate = translation == null && Boolean(body) && onTranslate;
 
   return (
     <div
@@ -92,6 +101,32 @@ export function MessageBubble({
           <time dateTime={message.timestamp}>{formatMessageTime(message.timestamp)}</time>
         </div>
         {body ? <p>{body}</p> : null}
+        {showCompleted ? (
+          <div className="message-bubble__translation">
+            <span className="message-bubble__lang">RU</span>
+            <p>{translation?.translated_text}</p>
+          </div>
+        ) : null}
+        {showRetry && onTranslate ? (
+          <button
+            type="button"
+            className="ghost-button message-bubble__translate"
+            disabled={translating}
+            onClick={() => onTranslate(message.id, true)}
+          >
+            {translating ? "Перевод…" : "Повторить перевод"}
+          </button>
+        ) : null}
+        {showTranslate ? (
+          <button
+            type="button"
+            className="ghost-button message-bubble__translate"
+            disabled={translating}
+            onClick={() => onTranslate(message.id, false)}
+          >
+            {translating ? "Перевод…" : "Перевести"}
+          </button>
+        ) : null}
         {message.thread_external_id ? (
           <p className="message-bubble__thread">
             <span>↳ Thread reply</span>

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from app.enums import AttachmentKind, DirectionSource, MessageDirection
+from app.enums import AttachmentKind, DirectionSource, MessageDirection, TranslationStatus
 from app.media_placeholder import detect_media_placeholder
 
 
@@ -49,6 +49,21 @@ class MediaPlaceholderRead(BaseModel):
     caption: str | None = None
 
 
+class TranslationRead(BaseModel):
+    target_language: str
+    source_language: str | None = None
+    translated_text: str | None = None
+    status: TranslationStatus
+
+
+class TranslateRequest(BaseModel):
+    force: bool = False
+
+
+class TranslationQueueResult(BaseModel):
+    queued: int
+
+
 class MessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,6 +82,7 @@ class MessageRead(BaseModel):
     created_at: datetime
     raw_data: dict[str, object] | None = Field(default=None)
     attachments: list[AttachmentRead] = Field(default_factory=list)
+    translation: TranslationRead | None = None
 
     @computed_field
     @property

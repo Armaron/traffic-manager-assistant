@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatSummary, ConversationStatus, MessageDirection } from "../types/inbox";
 import { platformLabel } from "../utils/format";
 import { MessageBubble } from "./MessageBubble";
@@ -28,8 +28,10 @@ type ConversationViewProps = {
   messages: ChatMessage[];
   loading: boolean;
   focusMessageId?: number | null;
+  translatingId?: number | null;
   onStatusChange: (status: ConversationStatus) => void;
   onDirectionChange?: (messageId: number, direction: MessageDirection) => void;
+  onTranslate?: (messageId: number, force: boolean) => void;
 };
 
 export function ConversationView({
@@ -37,12 +39,15 @@ export function ConversationView({
   messages,
   loading,
   focusMessageId = null,
+  translatingId = null,
   onStatusChange,
   onDirectionChange,
+  onTranslate,
 }: ConversationViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
   const previousCount = useRef(messages.length);
+  const previousHeight = useRef(0);
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const chatId = chat?.id ?? null;
 
@@ -70,6 +75,7 @@ export function ConversationView({
 
   useEffect(() => {
     previousCount.current = 0;
+    previousHeight.current = 0;
     pinnedRef.current = true;
     setHasNewBelow(false);
   }, [chatId]);
@@ -90,6 +96,27 @@ export function ConversationView({
       setHasNewBelow(true);
     }
   }, [messages, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (!node) {
+      return;
+    }
+    const nextHeight = node.scrollHeight;
+    const previous = previousHeight.current;
+    previousHeight.current = nextHeight;
+    if (!previous) {
+      return;
+    }
+    if (pinnedRef.current) {
+      node.scrollTop = nextHeight - node.clientHeight;
+      return;
+    }
+    // Keep the same visual offset when a translation grows a bubble above the viewport.
+    if (nextHeight > previous) {
+      node.scrollTop += nextHeight - previous;
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (focusMessageId == null) {
@@ -129,7 +156,9 @@ export function ConversationView({
                 message={message}
                 grouped={isGrouped(messages[index - 1], message)}
                 highlighted={focusMessageId === message.id}
+                translating={translatingId === message.id}
                 onDirectionChange={message.direction === "unknown" ? onDirectionChange : undefined}
+                onTranslate={onTranslate}
                 onShowThreadRoot={
                   message.thread_external_id
                     ? () => {

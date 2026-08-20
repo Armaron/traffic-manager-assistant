@@ -12,6 +12,7 @@ from app.integrations.telegram_errors import (
 from app.schemas.inbox import TelegramHealth, TelegramSyncResult
 from app.services.platform_sync import run_telegram_sync
 from app.services.sync_runtime import SyncInProgressError, SyncPlatform, get_sync_runtime
+from app.services.translation_queue import discard_pending_translations, flush_pending_translations
 
 router = APIRouter(prefix="/integrations/telegram", tags=["telegram"])
 
@@ -85,16 +86,20 @@ async def telegram_sync(db: DbSession) -> TelegramSyncResult:
                 settings=get_settings(),
             )
             db.commit()
+            flush_pending_translations()
             run.succeeded(result)
             return result
     except SyncInProgressError:
         raise http_sync_in_progress() from None
     except TelegramAuthorizationError:
         db.rollback()
+        discard_pending_translations()
         raise http_for_telegram(TelegramAuthorizationError("Telegram authorization required")) from None
     except TelegramError as exc:
         db.rollback()
+        discard_pending_translations()
         raise http_for_telegram(exc) from None
     except Exception:
         db.rollback()
+        discard_pending_translations()
         raise

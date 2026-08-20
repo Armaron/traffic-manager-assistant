@@ -42,6 +42,7 @@ def test_models_create_tables(db_engine) -> None:
         "messages",
         "knowledge_entries",
         "ai_analyses",
+        "message_translations",
     }.issubset(tables)
 
 
