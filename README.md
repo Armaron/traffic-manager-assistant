@@ -41,6 +41,13 @@ cd C:\Users\arman\cas\backend
 
 ## First launch (Windows)
 
+After the first setup below, from the project folder you can double-click:
+
+- `start.bat` — backend + frontend in two windows
+- `stop.bat` — stop them
+- `register-listener.bat` — one-time Windows package for Slack Desktop toasts
+- `start-listener.bat` — open the Notification Listener
+
 Open PowerShell and go to the project folder:
 
 ```powershell
