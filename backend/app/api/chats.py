@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.ai.errors import AIProviderError
 from app.ai.factory import get_ai_provider
@@ -11,6 +11,7 @@ from app.schemas.inbox import ChatStatusUpdate, ChatSummary
 from app.schemas.message import MessageRead, TranslationQueueResult
 from app.services import inbox as inbox_service
 from app.services.analysis import AIAnalysisService
+from app.services.context_export import ChatExportNotFound, ChatExportRangeError, export_inbox_chat
 from app.services.message_translation import lazy_queue_ids, to_message_read
 from app.services.translation_queue import enqueue_message_ids
 
@@ -48,6 +49,36 @@ def get_chat_messages(chat_id: int, db: DbSession) -> list[MessageRead]:
         raise HTTPException(status_code=404, detail="Chat not found")
     messages = inbox_service.list_messages(db, chat_id)
     return [to_message_read(message) for message in messages]
+
+
+@router.get("/{chat_id}/export")
+def get_chat_export(
+    chat_id: int,
+    db: DbSession,
+    range: str = Query(default="50"),
+    export_format: str = Query(default="md", alias="format"),
+    include_translation: bool = Query(default=False),
+):
+    fmt = (export_format or "md").strip().lower()
+    if fmt in {"markdown"}:
+        fmt = "md"
+    if fmt not in {"md", "json"}:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_export_format", "message": "Unknown export format."},
+        )
+    try:
+        return export_inbox_chat(
+            db,
+            chat_id,
+            range_key=range,
+            fmt=fmt,  # type: ignore[arg-type]
+            include_translation=include_translation,
+        )
+    except ChatExportNotFound:
+        raise HTTPException(status_code=404, detail="Chat not found") from None
+    except ChatExportRangeError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": str(exc)}) from None
 
 
 @router.post("/{chat_id}/translations/queue", response_model=TranslationQueueResult)

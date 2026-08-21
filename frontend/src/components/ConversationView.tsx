@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatSummary, ConversationStatus, MessageDirection } from "../types/inbox";
 import { platformLabel } from "../utils/format";
+import { ChatExportDialog } from "./ChatExportDialog";
 import { MessageBubble } from "./MessageBubble";
 import { StatusSelector } from "./StatusSelector";
 
@@ -49,6 +50,7 @@ export function ConversationView({
   const previousCount = useRef(messages.length);
   const previousHeight = useRef(0);
   const [hasNewBelow, setHasNewBelow] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const chatId = chat?.id ?? null;
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
@@ -143,8 +145,21 @@ export function ConversationView({
           <p className={`badge badge--${chat.platform}`}>{platformLabel(chat.platform)}</p>
           <h2>{chat.name}</h2>
         </div>
-        <StatusSelector value={chat.status} onChange={onStatusChange} />
+        <div className="conversation__header-actions">
+          <details className="conversation__menu">
+            <summary className="ghost-button" aria-label="Ещё">
+              ⋯
+            </summary>
+            <div className="conversation__menu-list">
+              <button type="button" onClick={() => setExportOpen(true)}>
+                Скачать контекст чата
+              </button>
+            </div>
+          </details>
+          <StatusSelector value={chat.status} onChange={onStatusChange} />
+        </div>
       </header>
+      <ChatExportDialog chatId={chat.id} open={exportOpen} onClose={() => setExportOpen(false)} />
       <div className="conversation__messages" ref={scrollRef} onScroll={handleScroll}>
         {loading && messages.length === 0 ? (
           <p className="empty-note">Loading messages…</p>

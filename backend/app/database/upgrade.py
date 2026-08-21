@@ -12,6 +12,7 @@ def apply_schema_upgrades(engine: Engine) -> None:
     _upgrade_messages(engine)
     _upgrade_ai_analyses(engine)
     _upgrade_message_indexes(engine)
+    _upgrade_digest_ai_results(engine)
 
 
 def _upgrade_ai_analyses(engine: Engine) -> None:
@@ -70,6 +71,29 @@ def _upgrade_messages(engine: Engine) -> None:
         )
         if "thread_external_id" not in columns:
             connection.execute(text("ALTER TABLE messages ADD COLUMN thread_external_id VARCHAR(255)"))
+
+
+def _upgrade_digest_ai_results(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "digest_ai_results" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("digest_ai_results")}
+    with engine.begin() as connection:
+        if "period_label" not in columns:
+            connection.execute(text("ALTER TABLE digest_ai_results ADD COLUMN period_label VARCHAR(16)"))
+            connection.execute(
+                text(
+                    "UPDATE digest_ai_results SET period_label = '24h' "
+                    "WHERE period_label IS NULL OR period_label = ''"
+                )
+            )
+        if "schema_version" not in columns:
+            connection.execute(text("ALTER TABLE digest_ai_results ADD COLUMN schema_version INTEGER DEFAULT 1"))
+            connection.execute(
+                text("UPDATE digest_ai_results SET schema_version = 1 WHERE schema_version IS NULL")
+            )
+        if "context_snapshot" not in columns:
+            connection.execute(text("ALTER TABLE digest_ai_results ADD COLUMN context_snapshot JSON"))
 
 
 def _upgrade_message_indexes(engine: Engine) -> None:

@@ -41,6 +41,13 @@ cd C:\Users\arman\cas\backend
 
 ## First launch (Windows)
 
+After the first setup below, from the project folder you can double-click:
+
+- `start.bat` — backend + frontend in two windows
+- `stop.bat` — stop them
+- `register-listener.bat` — one-time Windows package for Slack Desktop toasts
+- `start-listener.bat` — open the Notification Listener
+
 Open PowerShell and go to the project folder:
 
 ```powershell
@@ -157,7 +164,8 @@ Telegram uses the **MTProto user API** (Telethon), not Bot API. The app never se
    - `TELEGRAM_API_ID=`
    - `TELEGRAM_API_HASH=`
    - `TELEGRAM_SESSION_PATH=data/telegram.session`
-4. From `backend/` with the venv active, authorize once (interactive phone / login code / optional 2FA):
+4. Authorize the user account from the Inbox: **Подключить Telegram** (phone → login code from Telegram → optional 2FA). Do not paste `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` into the UI — those stay in `.env` only.
+5. CLI login is an emergency/developer fallback if the UI cannot be used:
 
 ```powershell
 cd C:\Users\arman\cas\backend
@@ -165,8 +173,8 @@ cd C:\Users\arman\cas\backend
 python -m app.integrations.telegram_auth
 ```
 
-5. Start the backend, then check `GET /integrations/telegram/health`.
-6. Use **Sync Telegram** in the Inbox only after you explicitly approve the first real sync. Do not leave credentials or the session file in git.
+6. Start the backend, then check `GET /integrations/telegram/health` or `GET /integrations/telegram/auth/status`.
+7. Use **Sync Telegram** in the Inbox only after you explicitly approve the first real sync. Do not leave credentials or the session file in git.
 
 Keep `TELEGRAM_MODE=mock` for local development without Telegram credentials.
 

@@ -18,6 +18,7 @@ from app.integrations.slack_dom_parser import (
     strip_message_chrome,
 )
 from app.integrations.slack_mapping import TOMBSTONE_TEXT, slack_ts_to_datetime
+from app.integrations.slack_self import apply_slack_self_outgoing, is_slack_self_name
 from app.models import Contact
 from app.schemas.inbox import SlackSyncResult
 from app.schemas.slack_browser import SlackBrowserEventsPayload, SlackBrowserMessage
@@ -120,6 +121,8 @@ def _direction(message: SlackBrowserMessage) -> tuple[MessageDirection, Directio
     if message.direction == "outgoing":
         source = DirectionSource.STABLE_ID if message.sender_external_id else DirectionSource.NATIVE
         return MessageDirection.OUTGOING, source
+    if is_slack_self_name(message.sender_name):
+        return MessageDirection.OUTGOING, DirectionSource.PROFILE_NAME
     if message.direction == "incoming":
         source = DirectionSource.STABLE_ID if message.sender_external_id else DirectionSource.NATIVE
         return MessageDirection.INCOMING, source
@@ -212,6 +215,9 @@ def ingest_slack_browser_events(
             if ingestion.message_updated:
                 result.messages_updated += 1
         _ = stored
+    updated_self = apply_slack_self_outgoing(session)
+    if updated_self:
+        get_sync_runtime().inbox_generation += 1
     contacts_after = session.scalar(select(func.count()).select_from(Contact)) or 0
     result.contacts_created = max(0, contacts_after - contacts_before)
     runtime = get_sync_runtime()

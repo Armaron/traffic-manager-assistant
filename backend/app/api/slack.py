@@ -6,7 +6,9 @@ from app.integrations.factory import get_slack_adapter
 from app.integrations.slack import SlackAdapter
 from app.integrations.slack_client import slack_missing_configuration
 from app.integrations.slack_errors import SlackAuthenticationError, SlackError
-from app.schemas.inbox import SlackHealth, SlackSyncResult
+from app.enums import Platform
+from app.schemas.inbox import SlackClearResult, SlackHealth, SlackSyncResult
+from app.services.platform_purge import clear_platform_chats
 from app.services.platform_sync import run_slack_sync
 from app.services.slack_browser import refresh_browser_connection
 from app.services.slack_events import slack_socket_connected
@@ -100,6 +102,22 @@ async def slack_health() -> SlackHealth:
         close = getattr(adapter, "close", None)
         if callable(close):
             await close()
+
+
+@router.post("/clear", response_model=SlackClearResult)
+def clear_slack_chats(db: DbSession) -> SlackClearResult:
+    """Delete local Slack chats and their messages. Never calls Slack."""
+    runtime = get_sync_runtime()
+    if runtime.is_running(SyncPlatform.SLACK):
+        raise http_sync_in_progress()
+    try:
+        chats_deleted, messages_deleted = clear_platform_chats(db, Platform.SLACK)
+        db.commit()
+        runtime.inbox_generation += 1
+        return SlackClearResult(chats_deleted=chats_deleted, messages_deleted=messages_deleted)
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/sync", response_model=SlackSyncResult)

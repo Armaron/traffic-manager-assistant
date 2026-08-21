@@ -1,10 +1,16 @@
-import type { ReactNode } from "react";
-import type { InboxFilter } from "../types/inbox";
+import { useState, type ReactNode } from "react";
+import type { InboxFilter, TelegramAuthUser } from "../types/inbox";
 import type { ChatSummary } from "../types/inbox";
-import { AutoTranslateToggle } from "./AutoTranslateToggle";
+import { AppNav } from "./AppNav";
 import { ChatList } from "./ChatList";
 import { FilterBar } from "./FilterBar";
-import { ThemeSwitcher } from "./ThemeSwitcher";
+import { InboxSettingsDialog } from "./InboxSettingsDialog";
+import {
+  canSyncSlack,
+  canSyncTelegram,
+  canSyncTypeX,
+  summarizeInboxHealth,
+} from "../utils/integrationStatus";
 
 type SidebarProps = {
   chats: ChatSummary[];
@@ -30,6 +36,10 @@ type SidebarProps = {
   telegramConnected?: boolean;
   telegramConfigured?: boolean;
   telegramSyncReady?: boolean;
+  telegramAuthInProgress?: boolean;
+  telegramUser?: TelegramAuthUser | null;
+  telegramLastSyncAt?: string | null;
+  onConnectTelegram?: () => void;
   onSyncTelegram?: () => void;
   telegramSyncing?: boolean;
   slackMode?: string;
@@ -41,89 +51,18 @@ type SidebarProps = {
   slackBrowserConnected?: boolean;
   onSyncSlack?: () => void;
   slackSyncing?: boolean;
+  onClearSlack?: () => void;
+  slackClearing?: boolean;
+  onSyncAvailable?: () => void;
+  autoSyncEnabled?: boolean;
+  typexError?: boolean;
+  telegramError?: boolean;
+  slackError?: boolean;
   syncNote?: string;
   autoTranslate?: boolean;
   autoTranslateBackendEnabled?: boolean;
   onAutoTranslateChange?: (enabled: boolean) => void;
 };
-
-function typexStatusLabel(
-  mode: string,
-  connected: boolean,
-  configured: boolean,
-  syncReady: boolean,
-  syncMode: string | null,
-): string {
-  if (mode !== "real") {
-    return "TypeX: mock";
-  }
-  if (!connected) {
-    return "TypeX: disconnected";
-  }
-  if (!configured) {
-    return "TypeX: configuration required";
-  }
-  if (!syncReady) {
-    return "TypeX: connected · Sync unavailable";
-  }
-  if (syncMode === "limited") {
-    return "TypeX: connected · Limited sync";
-  }
-  return "TypeX: connected";
-}
-
-function slackStatusLabel(
-  mode: string,
-  configured: boolean,
-  authenticated: boolean,
-  socketConfigured: boolean,
-  socketConnected: boolean,
-  browserConnected = false,
-): string {
-  if (mode === "browser" || browserConnected) {
-    return browserConnected ? "Slack Browser: connected" : "Slack Browser: open Slack Web to sync";
-  }
-  if (mode === "mock") {
-    return "Slack: mock";
-  }
-  if (mode !== "real") {
-    return "Slack: not configured";
-  }
-  if (!configured) {
-    return "Slack: setup required";
-  }
-  if (!authenticated) {
-    return "Slack: app approval required";
-  }
-  if (!socketConfigured) {
-    return "Slack: connected · socket setup required";
-  }
-  if (socketConnected) {
-    return "Slack: connected · live events";
-  }
-  return "Slack: connected";
-}
-
-function telegramStatusLabel(
-  mode: string,
-  configured: boolean,
-  authorized: boolean,
-  connected: boolean,
-): string {
-  if (mode !== "real") {
-    return "Telegram: not configured";
-  }
-  if (!configured) {
-    return "Telegram: not configured";
-  }
-  if (!authorized) {
-    return "Telegram: authorization required";
-  }
-  if (!connected) {
-    return "Telegram: disconnected";
-  }
-  return "Telegram: connected";
-}
 
 export function Sidebar({
   chats,
@@ -149,6 +88,10 @@ export function Sidebar({
   telegramConnected = false,
   telegramConfigured = false,
   telegramSyncReady = false,
+  telegramAuthInProgress = false,
+  telegramUser = null,
+  telegramLastSyncAt = null,
+  onConnectTelegram,
   onSyncTelegram,
   telegramSyncing = false,
   slackMode = "mock",
@@ -160,128 +103,209 @@ export function Sidebar({
   slackBrowserConnected = false,
   onSyncSlack,
   slackSyncing = false,
+  onClearSlack,
+  slackClearing = false,
+  onSyncAvailable,
+  autoSyncEnabled = false,
+  typexError = false,
+  telegramError = false,
+  slackError = false,
   syncNote = "",
   autoTranslate = true,
   autoTranslateBackendEnabled = true,
   onAutoTranslateChange,
 }: SidebarProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const health = summarizeInboxHealth({
+    typexMode,
+    typexConnected,
+    typexConfigured,
+    typexSyncReady,
+    typexSyncing,
+    typexError,
+    telegramMode,
+    telegramConfigured,
+    telegramAuthorized,
+    telegramConnected,
+    telegramAuthInProgress,
+    telegramSyncing,
+    telegramError,
+    slackMode,
+    slackConfigured,
+    slackAuthenticated,
+    slackSyncReady,
+    slackBrowserConnected,
+    slackSyncing,
+    slackError,
+    autoSyncEnabled,
+  });
+  const canManualSync =
+    Boolean(onSyncTypeX && canSyncTypeX({ typexMode, typexConnected, typexConfigured, typexSyncReady, typexSyncing })) ||
+    Boolean(
+      onSyncTelegram &&
+        canSyncTelegram({
+          telegramMode,
+          telegramAuthorized,
+          telegramConnected,
+          telegramSyncReady,
+          telegramSyncing,
+          telegramAuthInProgress,
+        }),
+    ) ||
+    Boolean(
+      onSyncSlack &&
+        canSyncSlack({
+          slackMode,
+          slackConfigured,
+          slackAuthenticated,
+          slackSyncReady,
+          slackSyncing,
+          slackClearing,
+        }),
+    );
+  const anySyncing = typexSyncing || telegramSyncing || slackSyncing || health.tone === "syncing";
+
+  function handleCompactSync() {
+    if (onSyncAvailable) {
+      onSyncAvailable();
+      return;
+    }
+    if (onSyncTypeX && canSyncTypeX({ typexMode, typexConnected, typexConfigured, typexSyncReady, typexSyncing })) {
+      onSyncTypeX();
+    }
+    if (
+      onSyncTelegram &&
+      canSyncTelegram({
+        telegramMode,
+        telegramAuthorized,
+        telegramConnected,
+        telegramSyncReady,
+        telegramSyncing,
+        telegramAuthInProgress,
+      })
+    ) {
+      onSyncTelegram();
+    }
+    if (
+      onSyncSlack &&
+      canSyncSlack({
+        slackMode,
+        slackConfigured,
+        slackAuthenticated,
+        slackSyncReady,
+        slackSyncing,
+        slackClearing,
+      })
+    ) {
+      onSyncSlack();
+    }
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar__header">
-        <p className="sidebar__eyebrow">Inbox</p>
-        <h1>Traffic Manager Assistant</h1>
+        <AppNav page="inbox" />
+        <input
+          className="search-input"
+          type="search"
+          placeholder="Поиск по имени или сообщению"
+          aria-label="Поиск по имени или сообщению"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+        />
+        <FilterBar value={filter} onChange={onFilterChange} />
       </div>
-      <input
-        className="search-input"
-        type="search"
-        placeholder="Search name or message"
-        value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
-      />
-      <FilterBar value={filter} onChange={onFilterChange} />
-      {syncStatusPanel}
-      {onSyncTypeX || onSyncTelegram || onSyncSlack ? (
-        <div className="typex-sync">
-          {onSyncTypeX ? (
-            <>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={onSyncTypeX}
-                disabled={
-                  typexMode !== "real" ||
-                  !typexConnected ||
-                  !typexConfigured ||
-                  !typexSyncReady ||
-                  typexSyncing
-                }
-              >
-                {typexSyncing ? "Syncing..." : "Sync TypeX"}
-              </button>
-              <p className="typex-sync__note">
-                {typexStatusLabel(
-                  typexMode,
-                  typexConnected,
-                  typexConfigured,
-                  typexSyncReady,
-                  typexSyncMode,
-                )}
-              </p>
-              {typexMode === "real" && typexSyncMode === "limited" ? (
-                <p className="typex-sync__note">Some TypeX messages may have unknown direction.</p>
-              ) : null}
-            </>
-          ) : null}
-          {onSyncTelegram ? (
-            <>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={onSyncTelegram}
-                disabled={
-                  telegramMode !== "real" ||
-                  !telegramAuthorized ||
-                  !telegramConnected ||
-                  !telegramSyncReady ||
-                  telegramSyncing
-                }
-              >
-                {telegramSyncing ? "Syncing..." : "Sync Telegram"}
-              </button>
-              <p className="typex-sync__note">{telegramStatusLabel(telegramMode, telegramConfigured, telegramAuthorized, telegramConnected)}</p>
-            </>
-          ) : null}
-          {onSyncSlack ? (
-            <>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={onSyncSlack}
-                disabled={
-                  slackMode !== "real" ||
-                  !slackConfigured ||
-                  !slackAuthenticated ||
-                  !slackSyncReady ||
-                  slackSyncing
-                }
-              >
-                {slackSyncing ? "Syncing..." : "Sync Slack"}
-              </button>
-              <p className="typex-sync__note">
-                {slackStatusLabel(
-                  slackMode,
-                  slackConfigured,
-                  slackAuthenticated,
-                  slackSocketConfigured,
-                  slackSocketConnected,
-                  slackBrowserConnected,
-                )}
-              </p>
-            </>
-          ) : null}
-          {syncNote ? <p className="typex-sync__note">{syncNote}</p> : null}
-        </div>
-      ) : null}
       {empty ? (
-        <div className="empty-state">
-          <p>No conversations yet.</p>
-          {onSeed ? (
-            <button type="button" className="primary-button" onClick={onSeed} disabled={seeding}>
-              {seeding ? "Loading…" : "Load mock chats"}
-            </button>
-          ) : null}
+        <div className="sidebar__chats">
+          <div className="empty-state">
+            <p>No conversations yet.</p>
+            {onSeed ? (
+              <button type="button" className="primary-button" onClick={onSeed} disabled={seeding}>
+                {seeding ? "Loading…" : "Load mock chats"}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : (
-        <ChatList chats={chats} selectedId={selectedId} onSelect={onSelect} />
+        <div className="sidebar__chats">
+          <ChatList chats={chats} selectedId={selectedId} onSelect={onSelect} />
+        </div>
       )}
-      {onAutoTranslateChange ? (
-        <AutoTranslateToggle
-          enabled={autoTranslate}
-          backendEnabled={autoTranslateBackendEnabled}
-          onChange={onAutoTranslateChange}
-        />
-      ) : null}
-      <ThemeSwitcher />
+      <div className="sidebar__footer">
+        <button
+          type="button"
+          className="sidebar__status"
+          onClick={() => setSettingsOpen(true)}
+          title="Интеграции"
+        >
+          <span className={`sync-dot sync-dot--${health.tone === "syncing" ? "syncing" : health.tone}`} aria-hidden="true" />
+          <span className="sidebar__status-label">{health.label}</span>
+        </button>
+        <button
+          type="button"
+          className={`sidebar__icon-button${anySyncing ? " is-syncing" : ""}`}
+          onClick={handleCompactSync}
+          disabled={!canManualSync || anySyncing}
+          title="Синхронизировать"
+          aria-label="Синхронизировать"
+        >
+          ↻
+        </button>
+        <button
+          type="button"
+          className="sidebar__icon-button"
+          onClick={() => setSettingsOpen(true)}
+          title="Настройки"
+          aria-label="Настройки"
+        >
+          ⚙
+        </button>
+      </div>
+      <InboxSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        syncStatusPanel={syncStatusPanel}
+        typexMode={typexMode}
+        typexConnected={typexConnected}
+        typexConfigured={typexConfigured}
+        typexSyncReady={typexSyncReady}
+        typexSyncMode={typexSyncMode}
+        onSyncTypeX={onSyncTypeX}
+        typexSyncing={typexSyncing}
+        telegramMode={telegramMode}
+        telegramAuthorized={telegramAuthorized}
+        telegramConnected={telegramConnected}
+        telegramConfigured={telegramConfigured}
+        telegramSyncReady={telegramSyncReady}
+        telegramAuthInProgress={telegramAuthInProgress}
+        telegramUser={telegramUser}
+        telegramLastSyncAt={telegramLastSyncAt}
+        onConnectTelegram={
+          onConnectTelegram
+            ? () => {
+                setSettingsOpen(false);
+                onConnectTelegram();
+              }
+            : undefined
+        }
+        onSyncTelegram={onSyncTelegram}
+        telegramSyncing={telegramSyncing}
+        slackMode={slackMode}
+        slackConfigured={slackConfigured}
+        slackAuthenticated={slackAuthenticated}
+        slackSocketConfigured={slackSocketConfigured}
+        slackSocketConnected={slackSocketConnected}
+        slackSyncReady={slackSyncReady}
+        slackBrowserConnected={slackBrowserConnected}
+        onSyncSlack={onSyncSlack}
+        slackSyncing={slackSyncing}
+        onClearSlack={onClearSlack}
+        slackClearing={slackClearing}
+        syncNote={syncNote}
+        autoTranslate={autoTranslate}
+        autoTranslateBackendEnabled={autoTranslateBackendEnabled}
+        onAutoTranslateChange={onAutoTranslateChange}
+      />
     </aside>
   );
 }

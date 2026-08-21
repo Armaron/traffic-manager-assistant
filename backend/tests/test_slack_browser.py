@@ -133,6 +133,30 @@ def test_normalized_message_ingested(
     assert chat.external_id == "C0OFFERS1"
 
 
+def test_igor_unknown_browser_message_is_outgoing(
+    browser_mode: Settings,
+    api_client: TestClient,
+    db_session: Session,
+) -> None:
+    reset_sync_runtime()
+    body = _payload()
+    body["messages"] = [
+        {
+            "external_id": "1710000901.000200",
+            "sender_external_id": None,
+            "sender_name": "Igor Amchislavskii",
+            "timestamp": "1710000901.000200",
+            "text": "I sent the stats",
+            "direction": "unknown",
+        }
+    ]
+    response = api_client.post("/integrations/slack-browser/events", json=body, headers=_headers())
+    assert response.status_code == 200
+    stored = db_session.scalars(select(Message)).one()
+    assert stored.direction is MessageDirection.OUTGOING
+    assert stored.sender_name == "Igor Amchislavskii"
+
+
 def test_noise_only_payload_does_not_rename_existing_chat(
     browser_mode: Settings,
     api_client: TestClient,

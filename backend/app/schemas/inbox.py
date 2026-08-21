@@ -78,6 +78,7 @@ class TelegramHealth(BaseModel):
     connected: bool = False
     authorized: bool = False
     sync_ready: bool = False
+    auth_in_progress: bool = False
     missing_configuration: list[str] = []
 
 
@@ -124,5 +125,10 @@ class SlackSyncResult(BaseModel):
     files_failed: int = 0
     media_downloaded: int = 0
     messages_updated: int = 0
+
+
+class SlackClearResult(BaseModel):
+    chats_deleted: int = 0
+    messages_deleted: int = 0
 
 

@@ -4,6 +4,7 @@ import { ConversationView } from "../components/ConversationView";
 import { HealthStatus } from "../components/HealthStatus";
 import { Sidebar } from "../components/Sidebar";
 import { SyncStatusBar } from "../components/SyncStatusBar";
+import { TelegramConnectDialog } from "../components/TelegramConnectDialog";
 import {
   ApiError,
   SYNC_IN_PROGRESS,
@@ -15,6 +16,7 @@ import {
   fetchSyncStatus,
   fetchSlackHealth,
   fetchSlackNotificationHealth,
+  fetchTelegramAuthStatus,
   fetchTelegramHealth,
   fetchTypeXHealth,
   queueChatTranslations,
@@ -22,6 +24,7 @@ import {
   seedMockData,
   setAutoSync,
   syncSlack,
+  clearSlackChats,
   syncTelegram,
   syncTypeX,
   translateMessage,
@@ -37,6 +40,7 @@ import type {
   MessageDirection,
   SyncStatus,
   SlackNotificationHealth,
+  TelegramAuthUser,
   TypeXSyncResult,
 } from "../types/inbox";
 import { readAutoTranslatePreference, writeAutoTranslatePreference } from "../utils/autoTranslate";
@@ -45,6 +49,12 @@ import { readAutoTranslatePreference, writeAutoTranslatePreference } from "../ut
 const STATUS_POLL_MS = 4000;
 
 type ConnectionState = "checking" | "connected" | "disconnected";
+
+type InboxPageProps = {
+  active?: boolean;
+  initialChatId?: number | null;
+  initialMessageId?: number | null;
+};
 
 function matchesFilter(chat: ChatSummary, filter: InboxFilter): boolean {
   if (filter === "all") {
@@ -109,6 +119,9 @@ function syncErrorNote(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.code === SYNC_IN_PROGRESS) {
     return "Sync already in progress";
   }
+  if (error instanceof ApiError && error.code === "telegram_auth_in_progress") {
+    return "Сначала завершите вход в Telegram.";
+  }
   return error instanceof Error ? error.message : fallback;
 }
 
@@ -123,10 +136,14 @@ function typexSyncNote(result: TypeXSyncResult): string {
   return parts.join(", ");
 }
 
-export function InboxPage() {
+export function InboxPage({
+  active = true,
+  initialChatId = null,
+  initialMessageId = null,
+}: InboxPageProps) {
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [chats, setChats] = useState<ChatSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(initialChatId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
@@ -140,6 +157,7 @@ export function InboxPage() {
   const [typexSyncing, setTypexSyncing] = useState(false);
   const [telegramSyncing, setTelegramSyncing] = useState(false);
   const [slackSyncing, setSlackSyncing] = useState(false);
+  const [slackClearing, setSlackClearing] = useState(false);
   const [syncNote, setSyncNote] = useState("");
   const [typexMode, setTypexMode] = useState("mock");
   const [typexConnected, setTypexConnected] = useState(false);
@@ -151,6 +169,9 @@ export function InboxPage() {
   const [telegramAuthorized, setTelegramAuthorized] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramSyncReady, setTelegramSyncReady] = useState(false);
+  const [telegramAuthInProgress, setTelegramAuthInProgress] = useState(false);
+  const [telegramUser, setTelegramUser] = useState<TelegramAuthUser | null>(null);
+  const [telegramConnectOpen, setTelegramConnectOpen] = useState(false);
   const [slackMode, setSlackMode] = useState("mock");
   const [slackConfigured, setSlackConfigured] = useState(false);
   const [slackAuthenticated, setSlackAuthenticated] = useState(false);
@@ -169,7 +190,11 @@ export function InboxPage() {
   const [error, setError] = useState("");
   const generationRef = useRef(0);
   const translationGenerationRef = useRef(0);
+  const generationSeededRef = useRef(false);
   const selectedIdRef = useRef<number | null>(null);
+  const initialChatIdRef = useRef(initialChatId);
+  const focusedDeepLinkRef = useRef("");
+  initialChatIdRef.current = initialChatId;
 
   // Real messenger data must never be mixed with demo seeding.
   const devSeedAvailable =
@@ -246,8 +271,32 @@ export function InboxPage() {
     }
   }, []);
 
+  const refreshTelegramConnection = useCallback(async () => {
+    const [telegram, auth] = await Promise.all([
+      fetchTelegramHealth().catch(() => null),
+      fetchTelegramAuthStatus().catch(() => null),
+    ]);
+    if (telegram) {
+      setTelegramMode(telegram.mode);
+      setTelegramConfigured(telegram.configured);
+      setTelegramAuthorized(telegram.authorized || Boolean(auth?.authorized));
+      setTelegramConnected(telegram.connected || Boolean(auth?.authorized));
+      setTelegramSyncReady(telegram.sync_ready || Boolean(auth?.authorized));
+      setTelegramAuthInProgress(Boolean(telegram.auth_in_progress || auth?.auth_in_progress));
+    }
+    if (auth) {
+      setTelegramAuthorized(auth.authorized || Boolean(telegram?.authorized));
+      setTelegramAuthInProgress(auth.auth_in_progress);
+      setTelegramUser(auth.user);
+      if (auth.authorized) {
+        setTelegramConnected(true);
+        setTelegramSyncReady(true);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    if (connection !== "connected") {
+    if (!active || connection !== "connected") {
       return;
     }
     let cancelled = false;
@@ -282,6 +331,12 @@ export function InboxPage() {
         if (notifications) {
           setSlackNotificationHealth(notifications);
         }
+        if (!generationSeededRef.current) {
+          generationRef.current = status.inbox_generation;
+          translationGenerationRef.current = status.translation_generation;
+          generationSeededRef.current = true;
+          return;
+        }
         const inboxChanged = status.inbox_generation !== generationRef.current;
         const translationChanged =
           status.translation_generation !== translationGenerationRef.current;
@@ -305,7 +360,7 @@ export function InboxPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [connection, refreshInboxQuietly, refreshSelectedMessagesQuietly]);
+  }, [active, connection, refreshInboxQuietly, refreshSelectedMessagesQuietly]);
 
   useEffect(() => {
     let cancelled = false;
@@ -318,25 +373,24 @@ export function InboxPage() {
         }
         setConnection("connected");
         setAppEnv(health.app_env);
-        const [typex, telegram, slack, notifications] = await Promise.all([
-          fetchTypeXHealth(),
-          fetchTelegramHealth().catch(() => null),
-          fetchSlackHealth().catch(() => null),
-          fetchSlackNotificationHealth().catch(() => null),
-        ]);
-        if (!cancelled) {
+        // Show the chat list immediately. TypeX/Telegram health can wait and
+        // must never block or look like a messenger resync.
+        const chatsPromise = loadChats(initialChatIdRef.current);
+        const integrationsPromise = (async () => {
+          const [typex, slack, notifications] = await Promise.all([
+            fetchTypeXHealth(),
+            fetchSlackHealth().catch(() => null),
+            fetchSlackNotificationHealth().catch(() => null),
+          ]);
+          await refreshTelegramConnection();
+          if (cancelled) {
+            return;
+          }
           setTypexMode(typex.mode);
           setTypexConnected(typex.connected);
           setTypexConfigured(typex.configured);
           setTypexSyncReady(typex.sync_ready);
           setTypexSyncMode(typex.sync_mode);
-          if (telegram) {
-            setTelegramMode(telegram.mode);
-            setTelegramConfigured(telegram.configured);
-            setTelegramAuthorized(telegram.authorized);
-            setTelegramConnected(telegram.connected);
-            setTelegramSyncReady(telegram.sync_ready);
-          }
           if (slack) {
             setSlackMode(slack.mode);
             setSlackConfigured(slack.configured);
@@ -350,9 +404,18 @@ export function InboxPage() {
             setSlackNotificationHealth(notifications);
           }
           setIntegrationsResolved(true);
+        })();
+        await chatsPromise;
+        if (!cancelled) {
+          setError("");
         }
-        await loadChats();
-        setError("");
+        try {
+          await integrationsPromise;
+        } catch {
+          if (!cancelled) {
+            setIntegrationsResolved(true);
+          }
+        }
       } catch {
         if (!cancelled) {
           setConnection("disconnected");
@@ -365,7 +428,13 @@ export function InboxPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshTelegramConnection]);
+
+  useEffect(() => {
+    if (initialChatId != null) {
+      setSelectedId(initialChatId);
+    }
+  }, [initialChatId]);
 
   useEffect(() => {
     if (resolvedSelectedId === null) {
@@ -395,6 +464,20 @@ export function InboxPage() {
       cancelled = true;
     };
   }, [resolvedSelectedId]);
+
+  useEffect(() => {
+    if (!initialMessageId || !messages.some((item) => item.id === initialMessageId)) {
+      return;
+    }
+    const key = `${resolvedSelectedId}:${initialMessageId}`;
+    if (focusedDeepLinkRef.current === key) {
+      return;
+    }
+    focusedDeepLinkRef.current = key;
+    setFocusMessageId(initialMessageId);
+    const timer = window.setTimeout(() => setFocusMessageId(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [initialMessageId, messages, resolvedSelectedId]);
 
   useEffect(() => {
     if (resolvedSelectedId === null || !autoTranslate) {
@@ -484,23 +567,56 @@ export function InboxPage() {
     }
   }
 
+  async function handleClearSlack() {
+    const confirmed = window.confirm(
+      "Удалить все локальные Slack-чаты и сообщения в них? В самом Slack ничего не изменится.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setSlackClearing(true);
+    try {
+      const result = await clearSlackChats();
+      await loadChats();
+      setSyncNote(`Удалено Slack: ${result.chats_deleted} чатов, ${result.messages_deleted} сообщений`);
+      setError("");
+    } catch (err: unknown) {
+      setSyncNote(syncErrorNote(err, "Не удалось очистить Slack"));
+    } finally {
+      setSlackClearing(false);
+    }
+  }
+
   async function handleSyncTelegram() {
     setTelegramSyncing(true);
     try {
       const result = await syncTelegram();
       await loadChats();
-      const telegram = await fetchTelegramHealth();
-      setTelegramMode(telegram.mode);
-      setTelegramConfigured(telegram.configured);
-      setTelegramAuthorized(telegram.authorized);
-      setTelegramConnected(telegram.connected);
-      setTelegramSyncReady(telegram.sync_ready);
+      await refreshTelegramConnection();
       setSyncNote(`${result.messages_created} new Telegram messages`);
       setError("");
     } catch (err: unknown) {
       setSyncNote(syncErrorNote(err, "Telegram unavailable"));
     } finally {
       setTelegramSyncing(false);
+    }
+  }
+
+  async function handleSyncAvailable() {
+    if (typexMode === "real" && typexConnected && typexConfigured && typexSyncReady) {
+      await handleSyncTypeX();
+    }
+    if (
+      telegramMode === "real" &&
+      telegramAuthorized &&
+      telegramConnected &&
+      telegramSyncReady &&
+      !telegramAuthInProgress
+    ) {
+      await handleSyncTelegram();
+    }
+    if (slackMode === "real" && slackConfigured && slackAuthenticated && slackSyncReady) {
+      await handleSyncSlack();
     }
   }
 
@@ -649,6 +765,16 @@ export function InboxPage() {
         telegramAuthorized={telegramAuthorized}
         telegramConnected={telegramConnected}
         telegramSyncReady={telegramSyncReady}
+        telegramAuthInProgress={telegramAuthInProgress}
+        telegramUser={telegramUser}
+        telegramLastSyncAt={syncStatus?.telegram.last_success_at ?? null}
+        onConnectTelegram={
+          telegramMode === "real"
+            ? () => {
+                setTelegramConnectOpen(true);
+              }
+            : undefined
+        }
         onSyncTelegram={() => {
           void handleSyncTelegram();
         }}
@@ -664,6 +790,17 @@ export function InboxPage() {
           void handleSyncSlack();
         }}
         slackSyncing={slackBusy}
+        onClearSlack={() => {
+          void handleClearSlack();
+        }}
+        slackClearing={slackClearing}
+        onSyncAvailable={() => {
+          void handleSyncAvailable();
+        }}
+        autoSyncEnabled={syncStatus?.auto_sync_enabled === true}
+        typexError={syncStatus?.typex.status === "error"}
+        telegramError={syncStatus?.telegram.status === "error"}
+        slackError={syncStatus?.slack.status === "error"}
         syncNote={syncNote}
         autoTranslate={autoTranslate}
         autoTranslateBackendEnabled={syncStatus?.auto_translate_enabled !== false}
@@ -714,6 +851,13 @@ export function InboxPage() {
         }
         onDirectionChange={(messageId, direction) => {
           void handleDirectionChange(messageId, direction);
+        }}
+      />
+      <TelegramConnectDialog
+        open={telegramConnectOpen}
+        onClose={() => setTelegramConnectOpen(false)}
+        onAuthorized={() => {
+          void refreshTelegramConnection();
         }}
       />
     </div>
