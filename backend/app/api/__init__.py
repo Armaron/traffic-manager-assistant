@@ -8,6 +8,8 @@ from app.api.slack import router as slack_router
 from app.api.slack_browser import router as slack_browser_router
 from app.api.slack_notifications import router as slack_notifications_router
 from app.api.sync import router as sync_router
+from app.api.digest import router as digest_router
+from app.api.ai_models import router as ai_models_router
 from app.api.telegram import router as telegram_router
 from app.api.typex import router as typex_router
 
@@ -22,3 +24,5 @@ api_router.include_router(slack_router)
 api_router.include_router(slack_browser_router)
 api_router.include_router(slack_notifications_router)
 api_router.include_router(sync_router)
+api_router.include_router(digest_router)
+api_router.include_router(ai_models_router)

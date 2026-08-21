@@ -144,6 +144,11 @@ export type SlackHealth = {
   workspace_present?: boolean;
 };
 
+export type SlackClearResult = {
+  chats_deleted: number;
+  messages_deleted: number;
+};
+
 export type SlackSyncResult = {
   chats_seen: number;
   chats_created: number;
@@ -168,7 +173,30 @@ export type TelegramHealth = {
   connected: boolean;
   authorized: boolean;
   sync_ready: boolean;
+  auth_in_progress?: boolean;
   missing_configuration: string[];
+};
+
+export type TelegramAuthUser = {
+  id: number;
+  display_name: string | null;
+  username: string | null;
+  phone_masked: string | null;
+};
+
+export type TelegramAuthStatus = {
+  configured: boolean;
+  session_exists: boolean;
+  authorized: boolean;
+  auth_in_progress: boolean;
+  user: TelegramAuthUser | null;
+};
+
+export type TelegramAuthAttempt = {
+  attempt_id: string | null;
+  state: string;
+  phone_masked?: string | null;
+  user?: TelegramAuthUser | null;
 };
 
 export type TelegramSyncResult = {

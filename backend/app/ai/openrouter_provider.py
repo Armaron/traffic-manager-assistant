@@ -7,6 +7,8 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from app.ai.digest_schema import DIGEST_SCHEMA_NAME, DIGEST_SYSTEM_PROMPT, digest_result_json_schema
+from app.ai.digest_qa_schema import DIGEST_QA_SCHEMA_NAME, DIGEST_QA_SYSTEM_PROMPT, digest_qa_result_json_schema
 from app.ai.errors import (
     AIAuthenticationError,
     AIConfigurationError,
@@ -22,6 +24,7 @@ from app.ai.provider import AIProvider
 from app.ai.structured import SCHEMA_NAME, analysis_result_json_schema
 from app.config import Settings, get_settings
 from app.schemas.analysis import AIAnalysisContext, AIAnalysisResult
+from app.schemas.digest import DigestAIOutput, DigestQAModelOutput
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +224,144 @@ class OpenRouterProvider(AIProvider):
             prompt_tokens,
             completion_tokens,
             total_tokens,
+        )
+        return result
+
+    async def summarize_digest(self, payload: dict[str, Any]) -> DigestAIOutput:
+        request = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": DIGEST_SCHEMA_NAME,
+                    "strict": True,
+                    "schema": digest_result_json_schema(),
+                },
+            },
+            "provider": {"require_parameters": True, "data_collection": "deny"},
+        }
+        close_client = False
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(timeout=self._timeout)
+            close_client = True
+        try:
+            response = await self._post_with_retry(client, request)
+            return self._parse_digest_response(response)
+        except AIProviderError as exc:
+            logger.error(
+                "ai_openrouter digest provider=%s model=%s http_status=%s success=false error_type=%s",
+                self.name,
+                self.model,
+                getattr(exc, "http_status", None),
+                type(exc).__name__,
+            )
+            raise
+        finally:
+            if close_client:
+                await client.aclose()
+
+    def _parse_digest_response(self, response: httpx.Response) -> DigestAIOutput:
+        try:
+            body = response.json()
+        except ValueError:
+            raise AIResponseValidationError("AI provider unavailable") from None
+        if not isinstance(body, dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        resolved = body.get("model")
+        if isinstance(resolved, str) and resolved.strip():
+            self.resolved_model = resolved.strip()
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        message = choices[0].get("message")
+        if not isinstance(message, dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        try:
+            data = _extract_json(message.get("parsed"), message.get("content"))
+            result = DigestAIOutput.model_validate(data)
+        except (TypeError, ValueError, ValidationError):
+            exc = AIResponseValidationError("AI provider unavailable")
+            exc.http_status = response.status_code  # type: ignore[attr-defined]
+            raise exc from None
+        logger.info(
+            "ai_openrouter digest provider=%s model=%s http_status=%s success=true",
+            self.name,
+            self.resolved_model,
+            response.status_code,
+        )
+        return result
+
+    async def answer_digest_qa(self, payload: dict[str, Any]) -> DigestQAModelOutput:
+        request = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": DIGEST_QA_SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": DIGEST_QA_SCHEMA_NAME,
+                    "strict": True,
+                    "schema": digest_qa_result_json_schema(),
+                },
+            },
+            "provider": {"require_parameters": True, "data_collection": "deny"},
+        }
+        close_client = False
+        client = self._client
+        if client is None:
+            client = httpx.AsyncClient(timeout=self._timeout)
+            close_client = True
+        try:
+            response = await self._post_with_retry(client, request)
+            return self._parse_qa_response(response)
+        except AIProviderError as exc:
+            logger.error(
+                "ai_openrouter digest_qa provider=%s model=%s http_status=%s success=false error_type=%s",
+                self.name,
+                self.model,
+                getattr(exc, "http_status", None),
+                type(exc).__name__,
+            )
+            raise
+        finally:
+            if close_client:
+                await client.aclose()
+
+    def _parse_qa_response(self, response: httpx.Response) -> DigestQAModelOutput:
+        try:
+            body = response.json()
+        except ValueError:
+            raise AIResponseValidationError("AI provider unavailable") from None
+        if not isinstance(body, dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        resolved = body.get("model")
+        if isinstance(resolved, str) and resolved.strip():
+            self.resolved_model = resolved.strip()
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        message = choices[0].get("message")
+        if not isinstance(message, dict):
+            raise AIResponseValidationError("AI provider unavailable")
+        try:
+            data = _extract_json(message.get("parsed"), message.get("content"))
+            result = DigestQAModelOutput.model_validate(data)
+        except (TypeError, ValueError, ValidationError):
+            exc = AIResponseValidationError("AI provider unavailable")
+            exc.http_status = response.status_code  # type: ignore[attr-defined]
+            raise exc from None
+        logger.info(
+            "ai_openrouter digest_qa provider=%s model=%s http_status=%s success=true",
+            self.name,
+            self.resolved_model,
+            response.status_code,
         )
         return result
 

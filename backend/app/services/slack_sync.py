@@ -10,6 +10,7 @@ from app.integrations.base import MessengerAdapter
 from app.integrations.slack import SlackAdapter
 from app.integrations.slack_errors import SlackAuthenticationError, SlackError
 from app.integrations.slack_mapping import TOMBSTONE_TEXT
+from app.integrations.slack_self import apply_slack_self_outgoing
 from app.models import Chat, Contact, Message, MessageAttachment
 from app.schemas.inbox import SlackSyncResult
 from app.schemas.unified import UnifiedAttachment, UnifiedMessage
@@ -133,6 +134,7 @@ async def sync_slack_messages(
                     result.messages_existing += 1
                     if ingestion.message_updated:
                         result.messages_updated += 1
+        apply_slack_self_outgoing(session)
         contacts_after = session.scalar(select(func.count()).select_from(Contact)) or 0
         result.contacts_created = max(0, contacts_after - contacts_before)
     finally:
@@ -195,4 +197,5 @@ async def ingest_slack_event_message(
         result.messages_existing = 1
     if message.thread_external_id:
         result.threads_seen = 1
+    apply_slack_self_outgoing(session)
     return result

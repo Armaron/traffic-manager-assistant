@@ -34,7 +34,7 @@ from fastapi.testclient import TestClient
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
-from app.models import AIAnalysis, Chat, Company, Contact, KnowledgeEntry, Message, MessageAttachment, MessageTranslation  # noqa: F401
+from app.models import AIAnalysis, Chat, Company, Contact, DigestAIResult, KnowledgeEntry, Message, MessageAttachment, MessageTranslation  # noqa: F401
 
 
 @pytest.fixture()

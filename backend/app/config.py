@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     slack_mode: str = "mock"
     slack_user_token: str | None = None
     slack_app_token: str | None = None
+    slack_self_display_name: str | None = None
     slack_browser_local_token: str | None = None
     slack_notification_capture_enabled: bool = False
     slack_notification_local_token: str | None = None
@@ -74,6 +75,8 @@ class Settings(BaseSettings):
     openrouter_model: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_timeout_seconds: float = 30.0
+    digest_review_default_model: str = "anthropic/claude-opus-5"
+    digest_qa_default_model: str = "anthropic/claude-sonnet-4.6"
     database_url: str = Field(default_factory=default_database_url)
 
     @field_validator("telegram_api_id", mode="before")
@@ -87,6 +90,7 @@ class Settings(BaseSettings):
         "telegram_api_hash",
         "telegram_session_path",
         "typex_self_display_name",
+        "slack_self_display_name",
         "typex_files_list_tool",
         "typex_file_save_tool",
         "slack_user_token",

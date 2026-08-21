@@ -22,6 +22,7 @@ from app.enums import (
 )
 from app.models import Chat, Message
 from app.schemas.analysis import AIAnalysisContext, AIAnalysisResult, ImportantEntities
+from app.schemas.digest import DigestAIOutput
 from app.services.analysis import AIAnalysisService
 from app.services.inbox import analysis_target_message, has_outgoing_after_message
 from app.services.message_direction import set_message_direction
@@ -41,6 +42,12 @@ class StubProvider(AIProvider):
     async def analyze_message(self, context: AIAnalysisContext) -> AIAnalysisResult:
         self.contexts.append(context)
         return self.result
+
+    async def summarize_digest(self, payload: dict) -> DigestAIOutput:
+        raise AssertionError("digest must not be called from conversation analysis")
+
+    async def answer_digest_qa(self, payload: dict):
+        raise AssertionError("digest Q&A must not be called from conversation analysis")
 
 
 def _result(*, needs_reply: bool, draft_reply: str | None) -> AIAnalysisResult:

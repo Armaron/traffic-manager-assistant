@@ -16,6 +16,7 @@ from typing import AsyncIterator
 
 from app.config import Settings, get_settings
 from app.integrations.telegram_errors import (
+    TelegramAuthInProgressError,
     TelegramAuthorizationError,
     TelegramConfigurationError,
     TelegramConnectionError,
@@ -61,6 +62,7 @@ ERROR_CODES: dict[type[BaseException], str] = {
     TypeXSyncNotReadyError: "typex_not_ready",
     TypeXToolUnavailableError: "typex_tool_unavailable",
     TelegramAuthorizationError: "telegram_authorization",
+    TelegramAuthInProgressError: "telegram_auth_in_progress",
     TelegramConfigurationError: "telegram_configuration",
     TelegramConnectionError: "telegram_connection",
     TelegramRateLimitError: "telegram_rate_limit",
@@ -272,6 +274,10 @@ class SyncRuntime:
         state.ready = False
         state.last_error_code = code
         state.last_error_at = utc_now()
+        if code == "telegram_auth_in_progress":
+            # Login is expected; try again next cycle without treating it as a failure.
+            state.next_auto_attempt_at = utc_now() + timedelta(seconds=self.interval_seconds)
+            return
         state.consecutive_failures += 1
         self._schedule_next(platform, finished=state.last_error_at)
 

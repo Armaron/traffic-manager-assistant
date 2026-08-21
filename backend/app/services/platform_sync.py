@@ -15,7 +15,11 @@ from app.integrations.slack_client import slack_missing_configuration
 from app.integrations.slack_errors import SlackAuthenticationError, SlackConfigurationError
 from app.integrations.telegram import TelegramAdapter
 from app.integrations.telegram_client import telegram_missing_configuration
-from app.integrations.telegram_errors import TelegramConfigurationError, TelegramConnectionError
+from app.integrations.telegram_errors import (
+    TelegramAuthInProgressError,
+    TelegramConfigurationError,
+    TelegramConnectionError,
+)
 from app.integrations.typex import TypeXAdapter
 from app.integrations.typex_errors import TypeXConfigurationError, TypeXSyncNotReadyError
 from app.integrations.typex_policy import missing_required_tool_bindings
@@ -58,9 +62,13 @@ def typex_configured() -> tuple[bool, str | None]:
 
 
 def telegram_configured() -> tuple[bool, str | None]:
+    from app.services.telegram_session import get_telegram_session_coordinator
+
     settings = get_settings()
     if telegram_mode() != "real":
         return True, None
+    if get_telegram_session_coordinator().auth_in_progress:
+        return False, "telegram_auth_in_progress"
     if telegram_missing_configuration(settings):
         return False, "telegram_configuration"
     return True, None
@@ -105,21 +113,33 @@ async def run_telegram_sync(
     adapter: object | None = None,
     settings: Settings | None = None,
 ) -> TelegramSyncResult:
+    from app.services.telegram_session import get_telegram_session_coordinator
+
     settings = settings or get_settings()
     mode = (settings.telegram_mode or "").strip().lower()
     if mode == "real" and telegram_missing_configuration(settings):
         raise TelegramConfigurationError("Telegram configuration required")
-    adapter = adapter if adapter is not None else get_telegram_adapter()
-    if mode == "real" and isinstance(adapter, TelegramAdapter):
-        await adapter.ensure_ready_for_sync()
-    elif not await adapter.health_check():
-        raise TelegramConnectionError("Telegram is not connected")
-    return await sync_telegram_messages(
-        session,
-        adapter,
-        chat_limit=settings.telegram_sync_chat_limit,
-        message_limit=settings.telegram_sync_message_limit,
-    )
+    coordinator = get_telegram_session_coordinator()
+    if coordinator.auth_in_progress:
+        raise TelegramAuthInProgressError()
+
+    async def _run() -> TelegramSyncResult:
+        bound = adapter if adapter is not None else get_telegram_adapter()
+        if mode == "real" and isinstance(bound, TelegramAdapter):
+            await bound.ensure_ready_for_sync()
+        elif not await bound.health_check():
+            raise TelegramConnectionError("Telegram is not connected")
+        return await sync_telegram_messages(
+            session,
+            bound,
+            chat_limit=settings.telegram_sync_chat_limit,
+            message_limit=settings.telegram_sync_message_limit,
+        )
+
+    if mode == "real":
+        async with coordinator.hold_sync():
+            return await _run()
+    return await _run()
 
 
 async def run_slack_sync(

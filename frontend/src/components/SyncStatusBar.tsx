@@ -18,6 +18,7 @@ const ERROR_LABELS: Record<string, string> = {
   typex_not_ready: "sync unavailable",
   typex_protocol: "unexpected response",
   typex_tool_unavailable: "read tool unavailable",
+  telegram_auth_in_progress: "вход выполняется",
   telegram_authorization: "needs authorization",
   telegram_configuration: "needs configuration",
   telegram_connection: "not connected",

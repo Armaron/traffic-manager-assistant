@@ -1,7 +1,8 @@
 """Map Slack conversations/messages to unified inbox models.
 
-Deterministic and network-free. Direction uses the authenticated Slack user id only.
-Never uses display-name heuristics. Never stores Slack private file URLs.
+Deterministic and network-free. Direction prefers the authenticated Slack user id.
+If there is no user id, a configured operator display name may mark outgoing.
+Never stores Slack private file URLs.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from app.enums import AttachmentKind, ChatType, DirectionSource, MessageDirection, Platform
+from app.integrations.slack_self import is_slack_self_name
 from app.schemas.unified import UnifiedChat, UnifiedMessage
 from app.services.attachment_storage import MAX_ATTACHMENT_BYTES
 
@@ -325,11 +327,14 @@ def resolve_direction(
     user_id: str | None,
     current_user_id: str | None,
     subtype: str | None = None,
+    sender_name: str | None = None,
 ) -> tuple[MessageDirection, DirectionSource]:
     if current_user_id and user_id and user_id == current_user_id:
         return MessageDirection.OUTGOING, DirectionSource.NATIVE
     if user_id:
         return MessageDirection.INCOMING, DirectionSource.NATIVE
+    if is_slack_self_name(sender_name):
+        return MessageDirection.OUTGOING, DirectionSource.PROFILE_NAME
     if subtype == "bot_message":
         return MessageDirection.INCOMING, DirectionSource.NATIVE
     return MessageDirection.UNKNOWN, DirectionSource.UNKNOWN
@@ -391,6 +396,7 @@ def map_message(
         user_id=record.user_id,
         current_user_id=current_user_id,
         subtype=subtype,
+        sender_name=record.sender_name,
     )
     payload_text = record.text
     if payload_text:

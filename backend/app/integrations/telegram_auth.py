@@ -1,5 +1,9 @@
 """Interactive Telegram user authorization. Does not read chats or messages.
 
+Emergency / developer fallback. Normal login is available from the Inbox UI
+(phone → Telegram code → optional 2FA). This CLI still works if the UI cannot
+be used.
+
 Usage (from backend/ with venv active):
 
     python -m app.integrations.telegram_auth

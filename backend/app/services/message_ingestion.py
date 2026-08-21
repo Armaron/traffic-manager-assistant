@@ -76,12 +76,14 @@ class MessageIngestionService:
             )
         if existing is not None:
             if (
-                existing.direction == MessageDirection.UNKNOWN
-                and payload.direction == MessageDirection.OUTGOING
+                payload.direction == MessageDirection.OUTGOING
+                and existing.direction != MessageDirection.OUTGOING
+                and existing.direction_source != DirectionSource.MANUAL
             ):
                 existing.direction = MessageDirection.OUTGOING
                 existing.direction_source = payload.direction_source or DirectionSource.PROFILE_NAME
                 existing.is_outgoing = True
+                existing.contact_id = None
                 analysis = self.session.scalar(
                     select(AIAnalysis).where(AIAnalysis.message_id == existing.id)
                 )
